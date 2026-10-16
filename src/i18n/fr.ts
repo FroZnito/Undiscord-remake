@@ -298,6 +298,22 @@ export const fr = {
   'log.loggedIn': 'Connecté en tant que {name}.',
   'log.packageLoaded': 'Package chargé : {channels} conversations, {messages} messages.',
   'log.ready': '{brand} v{version} prêt. Raccourci : {shortcut}.',
+  'target.channels': 'Salons du serveur',
+  'target.excludedCount': '{n} salon(s) épargné(s)',
+  'target.allChannels': 'Tous les salons',
+  'target.channelsHint': 'Décoche les salons à épargner : leurs fils de discussion sont épargnés aussi. Ce choix est mémorisé pour ce serveur.',
+  'target.noCategory': 'Sans catégorie',
+  'target.loadChannelsError': 'Impossible de charger les salons de ce serveur.',
+  'target.excludedShort': '−{n} salon(s)',
+  'filters.relativeHint': 'Recalculé à chaque lancement (idéal dans un préréglage).',
+  'presets.title': 'Préréglages',
+  'presets.save': 'Enregistrer',
+  'presets.saveCurrent': 'Enregistrer la configuration',
+  'presets.namePh': 'Nom du préréglage',
+  'presets.empty': 'Enregistre ta cible, tes filtres et ta méthode pour les réutiliser en un clic.',
+  'presets.applied': 'Préréglage « {name} » appliqué.',
+  'presets.saved': 'Préréglage « {name} » enregistré.',
+  'presets.delete': 'Supprimer ce préréglage',
 };
 
 export type I18nKey = keyof typeof fr;

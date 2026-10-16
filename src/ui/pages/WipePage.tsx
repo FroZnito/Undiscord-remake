@@ -4,7 +4,7 @@ import type { MessageRecord } from '../../core/types';
 import { formatDuration } from '../../core/util';
 import { fmt, t } from '../../i18n';
 import {
-  discardSession, exportRecords, resumeSession, toggleExcluded,
+  applyPreset, deletePreset, discardSession, exportRecords, resumeSession, savePreset, toggleExcluded,
 } from '../controller';
 import { formatDate, truncate } from '../format';
 import * as S from '../state';
@@ -66,6 +66,7 @@ function WipeForm() {
     <>
       <AccountBanner />
       <SessionBanner />
+      <PresetsBar />
       <Section title={t('target.title')}>
         <TargetPanel />
       </Section>
@@ -93,6 +94,62 @@ function WipeForm() {
         </div>
       </Section>
     </>
+  );
+}
+
+/** Saved setups (target + filters + method), applied in one click. */
+function PresetsBar() {
+  const list = S.presets.value;
+  const busy = S.run.status.value === 'running' || S.run.status.value === 'paused';
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (naming) inputRef.current?.focus();
+  }, [naming]);
+  const close = () => {
+    setNaming(false);
+    setName('');
+  };
+  const submit = () => {
+    if (!name.trim()) return;
+    savePreset(name);
+    close();
+  };
+
+  return (
+    <div class="presets">
+      <span class="label"><Icon name="bookmark" size="sm" />{t('presets.title')}</span>
+      {list.map(p => (
+        <span class="preset-chip" key={p.id}>
+          <button type="button" disabled={busy} onClick={() => applyPreset(p.id)}>{p.name}</button>
+          <button type="button" class="x" title={t('presets.delete')} aria-label={t('presets.delete')} onClick={() => deletePreset(p.id)}>
+            <Icon name="x" size="sm" />
+          </button>
+        </span>
+      ))}
+      {naming ? (
+        <span class="row">
+          <input
+            ref={inputRef}
+            class="input sm"
+            value={name}
+            maxLength={40}
+            placeholder={t('presets.namePh')}
+            onInput={e => setName(e.currentTarget.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') submit();
+              if (e.key === 'Escape') close();
+            }}
+          />
+          <Button small variant="primary" disabled={!name.trim()} onClick={submit}>{t('presets.save')}</Button>
+          <Button small variant="ghost" icon="x" aria-label={t('action.cancel')} onClick={close} />
+        </span>
+      ) : (
+        <Button small variant="ghost" icon="plus" onClick={() => setNaming(true)}>{t('presets.saveCurrent')}</Button>
+      )}
+      {!list.length && !naming && <span class="hint">{t('presets.empty')}</span>}
+    </div>
   );
 }
 

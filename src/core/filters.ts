@@ -127,7 +127,7 @@ export function packageMessageHas(m: PackageMessage, kind: HasKind): boolean | n
 }
 
 export type SkipReason =
-  | 'system' | 'author' | 'range' | 'pinned' | 'content' | 'has' | 'exclude' | 'pattern' | 'unverifiable';
+  | 'system' | 'author' | 'range' | 'pinned' | 'content' | 'has' | 'exclude' | 'pattern' | 'unverifiable' | 'channel';
 
 export interface MatchOptions {
   /** True when Discord's search already applied content/has filters. */

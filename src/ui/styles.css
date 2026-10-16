@@ -357,7 +357,34 @@ button { cursor: pointer; }
 .list-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .list-row .sub { font-size: 12px; color: var(--text-3); }
 .list-row .num { font-variant-numeric: tabular-nums; font-size: 12.5px; font-weight: 700; color: var(--text-2); }
+.list-row.sub-row { min-height: 38px; padding-left: 30px; }
+.list-row.off .name { color: var(--text-3); text-decoration: line-through; }
+.list-group {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px 6px; cursor: pointer;
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3);
+}
+.icon.rot { transform: rotate(-90deg); }
 .list-foot { padding: 7px 12px; font-size: 12px; color: var(--text-3); border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+
+.presets {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px;
+  border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line);
+}
+.presets > .label { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; }
+.preset-chip {
+  display: inline-flex; align-items: center; height: 30px; border-radius: 99px; overflow: hidden;
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.preset-chip button {
+  all: unset; box-sizing: border-box; cursor: pointer; height: 100%; display: inline-flex; align-items: center;
+  padding: 0 4px 0 12px; font-size: 13px; font-weight: 600; color: var(--text);
+}
+.preset-chip button:hover { color: var(--accent-text); }
+.preset-chip button[disabled] { opacity: 0.5; pointer-events: none; }
+.preset-chip button.x { padding: 0 9px 0 6px; color: var(--text-3); }
+.preset-chip button.x:hover { color: var(--danger-text); }
+.preset-chip button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.input.sm { height: 30px; width: 190px; }
 
 .mode-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .root.narrow .mode-cards { grid-template-columns: minmax(0, 1fr); }

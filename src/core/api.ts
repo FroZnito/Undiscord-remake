@@ -217,6 +217,10 @@ export class DiscordApi {
     return this.request<DiscordGuild[]>('GET', '/users/@me/guilds', { signal, query: { with_counts: false } });
   }
 
+  guildChannels(guildId: string, signal?: AbortSignal) {
+    return this.request<DiscordChannel[]>('GET', `/guilds/${guildId}/channels`, { signal });
+  }
+
   dmChannels(signal?: AbortSignal) {
     return this.request<DiscordChannel[]>('GET', '/users/@me/channels', { signal });
   }

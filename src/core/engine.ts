@@ -20,6 +20,8 @@ export interface JobTarget {
   messages?: PackageMessage[];
   /** For `ids` targets: fetch the channel pins and honour the pinned filter. */
   checkPins?: boolean;
+  /** For `guild` targets: channels (and their threads) to leave untouched. */
+  excludeChannelIds?: string[];
 }
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'skipped' | 'failed' | 'stopped';
@@ -386,6 +388,8 @@ export class WipeEngine {
     const channelParam = t.kind === 'channel' && t.guildId && t.guildId !== '@me' ? t.channelId : undefined;
     const bounds = computeBounds(filter);
     const matcher = createMatcher(filter, { serverFiltered: true });
+    const excluded = new Set(t.kind === 'guild' ? t.excludeChannelIds ?? [] : []);
+    const parents = new Map<string, string | null>();
     const seen = new Set<string>();
     let cursor = job.cursor ?? bounds.maxId;
     let emptyStreak = 0;
@@ -414,18 +418,37 @@ export class WipeEngine {
       }
       emptyStreak = 0;
       cursor = minSnowflake(hits.map(m => m.id));
+      for (const th of res.threads ?? []) parents.set(th.id, th.parent_id ?? null);
 
       for (const msg of sortNewestFirst(hits)) {
         if (seen.has(msg.id)) continue;
         seen.add(msg.id);
         job.scanned++;
         this.stats.scanned++;
-        await this.handle(job, fromDiscord(msg), matcher(msg));
+        let reason = matcher(msg);
+        if (!reason && excluded.size && (await this.inExcludedChannel(msg.channel_id, excluded, parents))) reason = 'channel';
+        await this.handle(job, fromDiscord(msg), reason);
       }
       job.cursor = cursor;
       this.events.onCheckpoint?.();
       await this.wait(this.options.searchDelay);
     }
+  }
+
+  /** True when a message's channel, or the parent of its thread, is excluded. */
+  private async inExcludedChannel(channelId: string, excluded: Set<string>, parents: Map<string, string | null>) {
+    if (excluded.has(channelId)) return true;
+    if (!parents.has(channelId)) {
+      // Unknown channel: look it up once to learn whether it is a thread of an excluded channel.
+      try {
+        parents.set(channelId, (await this.api.channel(channelId, this.signal)).parent_id ?? null);
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        parents.set(channelId, null);
+      }
+    }
+    const parent = parents.get(channelId);
+    return !!parent && excluded.has(parent);
   }
 
   /** History mode: reads the whole channel 100 messages at a time. Slow but independent of search. */

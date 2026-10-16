@@ -16,7 +16,7 @@ import { pickMessage, watchLocation, type DiscordLocation } from '../platform/di
 import { desktopNotify, playChime } from '../platform/notify';
 import { remove, save } from '../platform/storage';
 import { looksLikeToken, nativeFetch, onTokenCaptured, resolveToken } from '../platform/token';
-import { channelLabel, describeChannel, formatDate, packageChannelLabel, truncate } from './format';
+import { channelLabel, daysAgoLocal, describeChannel, formatDate, packageChannelLabel, truncate } from './format';
 import * as S from './state';
 import { APP_NAME, BRAND, REPO_URL } from './constants';
 
@@ -229,8 +229,10 @@ export function buildFilter(): { filter: MessageFilter } | { error: I18nKey } {
     if (!authorIds.length) return { error: 'toast.badAuthor' };
   }
   if (compileRegex(f.pattern).error) return { error: 'toast.badRegex' };
-  const { authorMode: _m, authorCustom: _c, ...rest } = f;
-  return { filter: { ...rest, authorIds } };
+  const { authorMode: _m, authorCustom: _c, olderThanDays, ...rest } = f;
+  // Relative period: computed now, so a saved preset keeps meaning "older than N days".
+  const beforeDate = olderThanDays ? daysAgoLocal(olderThanDays) : rest.beforeDate;
+  return { filter: { ...rest, beforeDate, authorIds } };
 }
 
 export function parseCustomTargets(text: string): JobTarget[] {
@@ -261,6 +263,74 @@ export function parseCustomTargets(text: string): JobTarget[] {
 
 export const dmLabel = (ch: DiscordChannel) => channelLabel(describeChannel(ch));
 
+const excludedIn = (guildId: string) => {
+  const ids = S.target.excluded.value[guildId] ?? [];
+  return ids.length ? ids : undefined;
+};
+
+// ---- server channels (exclusions) ------------------------------------------------------
+
+export async function loadGuildChannels(guildId: string, force = false) {
+  const current = S.discord.guildChannels.value[guildId];
+  if (current === 'loading' || (Array.isArray(current) && !force)) return;
+  const set = (v: DiscordChannel[] | 'loading' | 'error') =>
+    (S.discord.guildChannels.value = { ...S.discord.guildChannels.value, [guildId]: v });
+  set('loading');
+  try {
+    const list = await api.guildChannels(guildId);
+    for (const ch of list) channelCache.set(ch.id, ch);
+    set(list);
+  } catch {
+    set('error');
+  }
+}
+
+export function toggleExcludedChannel(guildId: string, channelIds: string[], exclude: boolean) {
+  const all = S.target.excluded.peek();
+  const next = new Set(all[guildId] ?? []);
+  for (const id of channelIds) exclude ? next.add(id) : next.delete(id);
+  const copy = { ...all };
+  if (next.size) copy[guildId] = [...next];
+  else delete copy[guildId];
+  S.target.excluded.value = copy;
+}
+
+// ---- presets ----------------------------------------------------------------------------------
+
+export function savePreset(name: string) {
+  const clean = name.trim().slice(0, 40);
+  if (!clean) return;
+  const preset: S.Preset = {
+    id: `p-${Date.now().toString(36)}`,
+    name: clean,
+    filter: { ...S.filter.peek() },
+    targetMode: S.target.mode.peek(),
+    dms: [...S.target.dms.peek()],
+    guilds: [...S.target.guilds.peek()],
+    custom: S.target.custom.peek(),
+    mode: S.settings.peek().mode,
+  };
+  // Same name replaces the previous preset.
+  S.presets.value = [...S.presets.peek().filter(p => p.name !== clean), preset];
+  toast('success', 'presets.saved', { name: clean });
+}
+
+export function applyPreset(id: string) {
+  const p = S.presets.peek().find(x => x.id === id);
+  if (!p || engine.isActive) return;
+  batch(() => {
+    S.filter.value = { ...S.defaultUiFilter(), ...p.filter };
+    S.target.mode.value = p.targetMode;
+    S.target.dms.value = p.dms;
+    S.target.guilds.value = p.guilds;
+    S.target.custom.value = p.custom;
+    S.updateSettings({ mode: p.mode });
+  });
+  toast('info', 'presets.applied', { name: p.name });
+}
+
+export const deletePreset = (id: string) => (S.presets.value = S.presets.peek().filter(p => p.id !== id));
+
 export function buildTargets(): JobTarget[] {
   const loc = S.discord.location.value;
   switch (S.target.mode.value) {
@@ -272,7 +342,7 @@ export function buildTargets(): JobTarget[] {
     }
     case 'guild': {
       const g = S.currentGuild.value;
-      return g ? [{ kind: 'guild', guildId: g.id, label: g.name }] : [];
+      return g ? [{ kind: 'guild', guildId: g.id, label: g.name, excludeChannelIds: excludedIn(g.id) }] : [];
     }
     case 'dms': {
       const dms = S.discord.dms.value ?? [];
@@ -285,7 +355,7 @@ export function buildTargets(): JobTarget[] {
       const guilds = S.discord.guilds.value ?? [];
       return S.target.guilds.value.flatMap(id => {
         const g = guilds.find(x => x.id === id);
-        return g ? [{ kind: 'guild' as const, guildId: id, label: g.name }] : [];
+        return g ? [{ kind: 'guild' as const, guildId: id, label: g.name, excludeChannelIds: excludedIn(id) }] : [];
       });
     }
     case 'custom':

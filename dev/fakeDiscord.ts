@@ -53,9 +53,11 @@ export function createFakeDiscord(opts: FakeOptions = {}) {
       { id: '200000000000000002', name: 'Gaming FR', icon: null },
     ],
     channels: [
-      { id: '300000000000000001', type: 0, name: 'général', guild_id: '200000000000000001' },
-      { id: '300000000000000002', type: 0, name: 'memes', guild_id: '200000000000000001' },
-      { id: '300000000000000003', type: 0, name: 'lfg', guild_id: '200000000000000002' },
+      { id: '300000000000000005', type: 4, name: 'Discussions', guild_id: '200000000000000001', position: 0 },
+      { id: '300000000000000001', type: 0, name: 'général', guild_id: '200000000000000001', parent_id: '300000000000000005', position: 0 },
+      { id: '300000000000000002', type: 0, name: 'memes', guild_id: '200000000000000001', parent_id: '300000000000000005', position: 1 },
+      { id: '300000000000000004', type: 11, name: 'fil-des-memes', guild_id: '200000000000000001', parent_id: '300000000000000002' },
+      { id: '300000000000000003', type: 0, name: 'lfg', guild_id: '200000000000000002', position: 0 },
       { id: '300000000000000010', type: 1, recipients: [alice] },
       { id: '300000000000000011', type: 1, recipients: [bob] },
       { id: '300000000000000012', type: 3, name: 'Projet', recipients: [alice, bob] },
@@ -162,6 +164,10 @@ export function createFakeDiscord(opts: FakeOptions = {}) {
     if (method === 'GET' && path === '/users/@me/guilds') return json(200, state.guilds);
     if (method === 'GET' && path === '/users/@me/channels') {
       return json(200, state.channels.filter(c => c.type === 1 || c.type === 3));
+    }
+    if ((m = /^\/guilds\/(\d+)\/channels$/.exec(path)) && method === 'GET') {
+      // Like Discord: threads are not part of this list.
+      return json(200, state.channels.filter(c => c.guild_id === m![1] && c.type !== 11));
     }
     if ((m = /^\/guilds\/(\d+)\/messages\/search$/.exec(path)) && method === 'GET') {
       return search(url, { guildId: m[1] });

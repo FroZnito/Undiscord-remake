@@ -45,6 +45,8 @@ export interface SearchResponse {
   messages: DiscordMessage[][];
   doing_deep_historical_index?: boolean;
   documents_indexed?: number;
+  /** Threads that appear in the results (lets us find their parent channel). */
+  threads?: DiscordChannel[];
 }
 
 export const ChannelType = {
@@ -71,6 +73,8 @@ export interface DiscordChannel {
   icon?: string | null;
   last_message_id?: string | null;
   nsfw?: boolean;
+  parent_id?: string | null;
+  position?: number;
 }
 
 export interface DiscordGuild {

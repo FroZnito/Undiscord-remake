@@ -1,8 +1,9 @@
 import type { Signal } from '@preact/signals';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { fmt, t } from '../../i18n';
+import type { DiscordChannel } from '../../core/types';
 import {
-  cancelCount, countList, dmLabel, loadDms, loadGuilds, parseCustomTargets,
+  cancelCount, countList, dmLabel, loadDms, loadGuildChannels, loadGuilds, parseCustomTargets, toggleExcludedChannel,
 } from '../controller';
 import { avatarUrl, channelLabel, describeChannel, guildIconUrl } from '../format';
 import * as S from '../state';
@@ -55,12 +56,102 @@ function CurrentGuild() {
   const g = S.currentGuild.value;
   if (!g) return <div class="current"><Empty icon="server">{t('target.noGuild')}</Empty></div>;
   return (
-    <div class="current">
-      <Avatar url={guildIconUrl(g)} name={g.name} square size="lg" />
-      <div class="meta">
-        <b class="priv">{g.name}</b>
-        <span>{t('target.guildDesc')}</span>
+    <>
+      <div class="current">
+        <Avatar url={guildIconUrl(g)} name={g.name} square size="lg" />
+        <div class="meta">
+          <b class="priv">{g.name}</b>
+          <span>{t('target.guildDesc')}</span>
+        </div>
       </div>
+      <ChannelExclusions guildId={g.id} />
+    </>
+  );
+}
+
+// Text-capable channel types: text, voice (text chat), announcement, stage, forum, media.
+const MESSAGE_CHANNEL_TYPES = new Set([0, 2, 5, 13, 15, 16]);
+const channelIcon = (type: number): IconName => (type === 2 || type === 13 ? 'users' : type === 15 || type === 16 ? 'list' : 'hash');
+
+interface ChannelGroup {
+  id: string;
+  name: string | null;
+  channels: DiscordChannel[];
+}
+
+function groupChannels(all: DiscordChannel[]): ChannelGroup[] {
+  const byPos = (a: DiscordChannel, b: DiscordChannel) => (a.position ?? 0) - (b.position ?? 0);
+  const categories = all.filter(c => c.type === 4).sort(byPos);
+  const channels = all.filter(c => MESSAGE_CHANNEL_TYPES.has(c.type)).sort(byPos);
+  const groups: ChannelGroup[] = [
+    { id: 'none', name: null, channels: channels.filter(c => !c.parent_id || !categories.some(k => k.id === c.parent_id)) },
+    ...categories.map(k => ({ id: k.id, name: k.name ?? '', channels: channels.filter(c => c.parent_id === k.id) })),
+  ];
+  return groups.filter(gr => gr.channels.length);
+}
+
+/** Lets the user spare some channels when wiping a whole server. Remembered per server. */
+function ChannelExclusions({ guildId }: { guildId: string }) {
+  const [open, setOpen] = useState(false);
+  const state = S.discord.guildChannels.value[guildId];
+  const excluded = new Set(S.target.excluded.value[guildId] ?? []);
+  useEffect(() => {
+    if (open) void loadGuildChannels(guildId);
+  }, [open, guildId]);
+  const groups = useMemo(() => groupChannels(Array.isArray(state) ? state : []), [state]);
+
+  return (
+    <div class="card flat">
+      <div class="list-row" role="button" tabIndex={0} aria-expanded={open}
+        onClick={() => setOpen(!open)} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOpen(!open))}>
+        <Icon name="filter" size="sm" class="muted" />
+        <span class="name">{t('target.channels')}</span>
+        <span class={`pill${excluded.size ? ' warn' : ''}`}>
+          {excluded.size ? t('target.excludedCount', { n: excluded.size }) : t('target.allChannels')}
+        </span>
+        <Icon name="chevronDown" size="sm" class={open ? undefined : 'rot'} />
+      </div>
+      {open && (
+        <>
+          <div class="list-foot" style={{ borderTop: '1px solid var(--line)' }}>{t('target.channelsHint')}</div>
+          <div class="list scroll">
+            {state === 'loading' || state === undefined ? (
+              <div class="empty"><div class="spinner" />{t('target.loading')}</div>
+            ) : state === 'error' ? (
+              <Empty icon="alert">{t('target.loadChannelsError')}</Empty>
+            ) : groups.map(gr => {
+              const ids = gr.channels.map(c => c.id);
+              const off = ids.filter(id => excluded.has(id)).length;
+              return (
+                <div key={gr.id}>
+                  <label class="list-group">
+                    <input
+                      type="checkbox"
+                      class="check"
+                      checked={off === 0}
+                      ref={el => {
+                        if (el) el.indeterminate = off > 0 && off < ids.length;
+                      }}
+                      onChange={() => toggleExcludedChannel(guildId, ids, off === 0)}
+                    />
+                    <span class="priv">{gr.name ?? t('target.noCategory')}</span>
+                  </label>
+                  {gr.channels.map(ch => {
+                    const on = !excluded.has(ch.id);
+                    return (
+                      <label class={`list-row sub-row${on ? '' : ' off'}`} key={ch.id}>
+                        <input type="checkbox" class="check" checked={on} onChange={() => toggleExcludedChannel(guildId, [ch.id], on)} />
+                        <Icon name={channelIcon(ch.type)} size="sm" class="muted" />
+                        <span class="name priv">{ch.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -72,6 +163,7 @@ interface Item {
   iconUrl: string | null;
   square?: boolean;
   icon?: IconName;
+  badge?: string;
 }
 
 function DmList() {
@@ -101,9 +193,16 @@ function DmList() {
 function GuildList() {
   useEffect(() => void loadGuilds(), []);
   const guilds = S.discord.guilds.value;
+  const excluded = S.target.excluded.value;
   const items = useMemo<Item[]>(
-    () => (guilds ?? []).map(g => ({ id: g.id, name: g.name, iconUrl: guildIconUrl(g), square: true })),
-    [guilds],
+    () => (guilds ?? []).map(g => ({
+      id: g.id,
+      name: g.name,
+      iconUrl: guildIconUrl(g),
+      square: true,
+      badge: excluded[g.id]?.length ? t('target.excludedShort', { n: excluded[g.id].length }) : undefined,
+    })),
+    [guilds, excluded],
   );
   return (
     <SelectList
@@ -186,6 +285,7 @@ function SelectList(props: {
                 <Avatar url={item.iconUrl} name={item.name} square={item.square} icon={item.iconUrl ? undefined : item.icon} />
                 <span class="name priv">{item.name}</span>
                 {item.sub && <span class="sub">{item.sub}</span>}
+                {item.badge && <span class="pill warn">{item.badge}</span>}
                 {c === 'loading' ? <div class="spinner" /> : c === 'error' ? <Icon name="alert" size="sm" class="muted" />
                   : typeof c === 'number' ? <span class={`pill${c > 0 ? ' accent' : ''}`}>{fmt(c)}</span> : null}
               </div>

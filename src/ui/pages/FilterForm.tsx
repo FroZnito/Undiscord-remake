@@ -105,18 +105,31 @@ export function FilterForm() {
           </div>
           <div class="field">
             <span class="hint">{t('filters.before')}</span>
-            <input type="datetime-local" class="input" value={f.beforeDate} onInput={e => set({ beforeDate: e.currentTarget.value })} />
+            <input
+              type="datetime-local"
+              class="input"
+              value={f.olderThanDays ? daysAgoLocal(f.olderThanDays) : f.beforeDate}
+              disabled={!!f.olderThanDays}
+              onInput={e => set({ beforeDate: e.currentTarget.value, olderThanDays: null })}
+            />
           </div>
         </div>
         <div class="row wrap">
           <span class="hint">{t('filters.olderThan')}</span>
           {PRESETS.map(([key, days]) => (
-            <Chip on={false} icon="clock" onClick={() => set({ beforeDate: daysAgoLocal(days), afterDate: '' })}>{t(key)}</Chip>
+            <Chip
+              on={f.olderThanDays === days}
+              icon="clock"
+              onClick={() => set({ olderThanDays: f.olderThanDays === days ? null : days, beforeDate: '' })}
+            >
+              {t(key)}
+            </Chip>
           ))}
-          {(f.afterDate || f.beforeDate) && (
-            <Button small variant="ghost" icon="x" onClick={() => set({ afterDate: '', beforeDate: '' })}>{t('action.clear')}</Button>
+          {(f.afterDate || f.beforeDate || f.olderThanDays) && (
+            <Button small variant="ghost" icon="x" onClick={() => set({ afterDate: '', beforeDate: '', olderThanDays: null })}>{t('action.clear')}</Button>
           )}
         </div>
+        {f.olderThanDays && <span class="hint">{t('filters.relativeHint')}</span>}
       </Field>
 
       <Field label={t('filters.range')}>

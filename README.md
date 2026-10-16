@@ -27,13 +27,15 @@ Pour construire le script toi-même : `npm install` puis `npm run build`, et ouv
 **Cibles**
 - Salon ou MP actuel, serveur entier (tous les salons et fils), sélection de MP / groupes, sélection de serveurs,
   ou liste d'IDs / de liens collés.
+- **Salons épargnés** : en nettoyant un serveur, décoche les salons à garder (et leurs fils). Mémorisé par serveur.
+- **Préréglages** : enregistre une configuration (cible + filtres + méthode) et réapplique-la en un clic.
 - **Comptage** de tes messages par MP ou par serveur avant de lancer quoi que ce soit.
 - **Package de données Discord** (`.zip` ou dossier extrait) : suppression directe par ID de tout ce que tu as
   envoyé, y compris dans des conversations fermées. Le fichier est lu localement, rien n'est envoyé ailleurs.
 
 **Filtres** : texte contenu, expression régulière, « doit contenir » / « exclure si contient »
 (lien, fichier, image, vidéo, intégration, audio, sticker, sondage), épinglés (ignorer / inclure / uniquement),
-période (avec raccourcis « plus ancien que 7 jours / 30 jours / 1 an »), intervalle entre deux messages
+période (avec « plus ancien que 7 jours / 30 jours / 1 an », recalculé à chaque lancement), intervalle entre deux messages
 sélectionnés directement dans le chat, autres auteurs (modération), salons NSFW.
 
 **Sécurité**
@@ -79,6 +81,12 @@ npm run check      # typecheck + tests + build
 son indexation lente, ses pages vides et ses raccourcis globaux. On peut tout tester sans compte réel ;
 le bouton « package.zip d'exemple » génère un faux package de données. La version `[DEV]` du script installée
 depuis `http://localhost:8787/dist/undiscord-remake.user.js` se met à jour toute seule.
+
+### Publier une version
+
+1. Ajoute une section `## [x.y.z]` dans [CHANGELOG.md](CHANGELOG.md).
+2. `npm run release -- patch` (ou `minor`, `major`, `1.2.3`) : vérifie, compile, commite et crée le tag.
+3. `git push --follow-tags` : GitHub Actions crée la release, et Tampermonkey propose la mise à jour à tout le monde.
 
 ```
 src/

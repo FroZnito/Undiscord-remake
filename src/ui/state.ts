@@ -69,11 +69,13 @@ export interface UiFilter {
   beforeId: string;
   afterDate: string;
   beforeDate: string;
+  /** "Older than N days": relative, recomputed at each run (wins over beforeDate). */
+  olderThanDays: number | null;
 }
 
 export function defaultUiFilter(): UiFilter {
   const { authorIds: _ignored, ...rest } = defaultFilter();
-  return { authorMode: 'me', authorCustom: '', ...rest };
+  return { authorMode: 'me', authorCustom: '', ...rest, olderThanDays: null };
 }
 
 export const settings = signal<Settings>(defaultSettings);
@@ -85,7 +87,7 @@ export const updateFilter = (patch: Partial<UiFilter>) => (filter.value = { ...f
 export function activeFilterCount(f: UiFilter): number {
   return [
     f.authorMode === 'custom', !!f.content.trim(), !!f.pattern.trim(), f.has.length > 0, f.exclude.length > 0,
-    f.pinned !== 'exclude', !f.includeNsfw, !!(f.afterDate || f.beforeDate), !!(f.afterId || f.beforeId),
+    f.pinned !== 'exclude', !f.includeNsfw, !!(f.afterDate || f.beforeDate || f.olderThanDays), !!(f.afterId || f.beforeId),
   ].filter(Boolean).length;
 }
 
@@ -141,7 +143,24 @@ export const target = {
   dms: signal<string[]>([]),
   guilds: signal<string[]>([]),
   custom: signal(''),
+  /** Channels to spare when wiping a whole server, remembered per server id. */
+  excluded: signal<Record<string, string[]>>({}),
 };
+
+// ---- presets ---------------------------------------------------------------------------
+
+export interface Preset {
+  id: string;
+  name: string;
+  filter: UiFilter;
+  targetMode: TargetMode;
+  dms: string[];
+  guilds: string[];
+  custom: string;
+  mode: EngineMode;
+}
+
+export const presets = signal<Preset[]>([]);
 
 // ---- discord data -------------------------------------------------------------------------
 
@@ -162,6 +181,7 @@ export const discord = {
   channelInfo: signal<ChannelInfo | null>(null),
   guilds: signal<DiscordGuild[] | null>(null),
   guildsLoading: signal(false),
+  guildChannels: signal<Record<string, DiscordChannel[] | 'loading' | 'error'>>({}),
   dms: signal<DiscordChannel[] | null>(null),
   dmsLoading: signal(false),
   counts: signal<Record<string, number | 'loading' | 'error'>>({}),
@@ -271,6 +291,8 @@ export function initState() {
   ui.filtersOpen.value = load('filtersOpen', true);
   target.mode.value = load<TargetMode>('targetMode', 'channel');
   target.custom.value = load('customTargets', '');
+  target.excluded.value = load<Record<string, string[]>>('excludedChannels', {});
+  presets.value = load<Preset[]>('presets', []);
   savedSession.value = load<SessionSnapshot | null>('session', null);
 
   effect(() => save('settings', settings.value));
@@ -279,6 +301,8 @@ export function initState() {
   effect(() => save('filtersOpen', ui.filtersOpen.value));
   effect(() => save('targetMode', target.mode.value));
   effect(() => save('customTargets', target.custom.value));
+  effect(() => save('excludedChannels', target.excluded.value));
+  effect(() => save('presets', presets.value));
   effect(() => {
     const lang = settings.value.lang;
     currentLang.value = lang === 'auto' ? detectLang() : lang;

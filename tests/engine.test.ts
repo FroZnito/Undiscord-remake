@@ -75,6 +75,18 @@ describe('WipeEngine — search mode', () => {
     expect(engine.stats.deleted).toBe(40);
   });
 
+  it('leaves excluded channels and their threads alone in a guild wipe', async () => {
+    const { fake, engine, options, jobs } = setup();
+    const THREAD = '300000000000000004';
+    fake.seed(GENERAL, 20, [fake.state.me]);
+    fake.seed(MEMES, 20, [fake.state.me]);
+    fake.seed(THREAD, 10, [fake.state.me]);
+    await engine.run(jobs({ kind: 'guild', guildId: GUILD, label: 'guild', excludeChannelIds: [MEMES] }), options());
+    expect(fake.remaining(GENERAL)).toBe(1); // pinned
+    expect(fake.remaining(MEMES)).toBe(20);
+    expect(fake.remaining(THREAD)).toBe(10);
+  });
+
   it('respects text and date filters', async () => {
     const { fake, engine, options, jobs } = setup();
     fake.seed(GENERAL, 48, [fake.state.me]);

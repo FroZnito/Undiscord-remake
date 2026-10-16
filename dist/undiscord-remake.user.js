@@ -1333,7 +1333,23 @@
     "log.tokenFound": "Token {source}.",
     "log.loggedIn": "Signed in as {name}.",
     "log.packageLoaded": "Package loaded: {channels} conversations, {messages} messages.",
-    "log.ready": "{brand} v{version} ready. Shortcut: {shortcut}."
+    "log.ready": "{brand} v{version} ready. Shortcut: {shortcut}.",
+    "target.channels": "Server channels",
+    "target.excludedCount": "{n} channel(s) spared",
+    "target.allChannels": "All channels",
+    "target.channelsHint": "Untick the channels to spare: their threads are spared too. This choice is remembered for this server.",
+    "target.noCategory": "No category",
+    "target.loadChannelsError": "Could not load this server’s channels.",
+    "target.excludedShort": "−{n} channel(s)",
+    "filters.relativeHint": "Recomputed at every run (great in a preset).",
+    "presets.title": "Presets",
+    "presets.save": "Save",
+    "presets.saveCurrent": "Save this setup",
+    "presets.namePh": "Preset name",
+    "presets.empty": "Save your target, filters and method to reuse them in one click.",
+    "presets.applied": "Preset “{name}” applied.",
+    "presets.saved": "Preset “{name}” saved.",
+    "presets.delete": "Delete this preset"
   };
 
   // src/i18n/fr.ts
@@ -1614,7 +1630,23 @@
     "log.tokenFound": "Token {source}.",
     "log.loggedIn": "Connecté en tant que {name}.",
     "log.packageLoaded": "Package chargé : {channels} conversations, {messages} messages.",
-    "log.ready": "{brand} v{version} prêt. Raccourci : {shortcut}."
+    "log.ready": "{brand} v{version} prêt. Raccourci : {shortcut}.",
+    "target.channels": "Salons du serveur",
+    "target.excludedCount": "{n} salon(s) épargné(s)",
+    "target.allChannels": "Tous les salons",
+    "target.channelsHint": "Décoche les salons à épargner : leurs fils de discussion sont épargnés aussi. Ce choix est mémorisé pour ce serveur.",
+    "target.noCategory": "Sans catégorie",
+    "target.loadChannelsError": "Impossible de charger les salons de ce serveur.",
+    "target.excludedShort": "−{n} salon(s)",
+    "filters.relativeHint": "Recalculé à chaque lancement (idéal dans un préréglage).",
+    "presets.title": "Préréglages",
+    "presets.save": "Enregistrer",
+    "presets.saveCurrent": "Enregistrer la configuration",
+    "presets.namePh": "Nom du préréglage",
+    "presets.empty": "Enregistre ta cible, tes filtres et ta méthode pour les réutiliser en un clic.",
+    "presets.applied": "Préréglage « {name} » appliqué.",
+    "presets.saved": "Préréglage « {name} » enregistré.",
+    "presets.delete": "Supprimer ce préréglage"
   };
 
   // src/i18n/index.ts
@@ -2169,6 +2201,9 @@ html.udr-picking li[id^="chat-messages-"]:hover {
     }
     guilds(signal) {
       return this.request("GET", "/users/@me/guilds", { signal, query: { with_counts: false } });
+    }
+    guildChannels(guildId, signal) {
+      return this.request("GET", `/guilds/${guildId}/channels`, { signal });
     }
     dmChannels(signal) {
       return this.request("GET", "/users/@me/channels", { signal });
@@ -3342,6 +3377,8 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
       const channelParam = t5.kind === "channel" && t5.guildId && t5.guildId !== "@me" ? t5.channelId : void 0;
       const bounds = computeBounds(filter2);
       const matcher = createMatcher(filter2, { serverFiltered: true });
+      const excluded = new Set(t5.kind === "guild" ? t5.excludeChannelIds ?? [] : []);
+      const parents = /* @__PURE__ */ new Map();
       const seen = /* @__PURE__ */ new Set();
       let cursor = job.cursor ?? bounds.maxId;
       let emptyStreak = 0;
@@ -3366,17 +3403,34 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
         }
         emptyStreak = 0;
         cursor = minSnowflake(hits.map((m3) => m3.id));
+        for (const th of res.threads ?? []) parents.set(th.id, th.parent_id ?? null);
         for (const msg of sortNewestFirst(hits)) {
           if (seen.has(msg.id)) continue;
           seen.add(msg.id);
           job.scanned++;
           this.stats.scanned++;
-          await this.handle(job, fromDiscord(msg), matcher(msg));
+          let reason = matcher(msg);
+          if (!reason && excluded.size && await this.inExcludedChannel(msg.channel_id, excluded, parents)) reason = "channel";
+          await this.handle(job, fromDiscord(msg), reason);
         }
         job.cursor = cursor;
         this.events.onCheckpoint?.();
         await this.wait(this.options.searchDelay);
       }
+    }
+    /** True when a message's channel, or the parent of its thread, is excluded. */
+    async inExcludedChannel(channelId, excluded, parents) {
+      if (excluded.has(channelId)) return true;
+      if (!parents.has(channelId)) {
+        try {
+          parents.set(channelId, (await this.api.channel(channelId, this.signal)).parent_id ?? null);
+        } catch (err2) {
+          if (isAbortError(err2)) throw err2;
+          parents.set(channelId, null);
+        }
+      }
+      const parent = parents.get(channelId);
+      return !!parent && excluded.has(parent);
     }
     /** History mode: reads the whole channel 100 messages at a time. Slow but independent of search. */
     async runHistoryJob(job) {
@@ -3700,7 +3754,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
   };
   function defaultUiFilter() {
     const { authorIds: _ignored, ...rest } = defaultFilter();
-    return { authorMode: "me", authorCustom: "", ...rest };
+    return { authorMode: "me", authorCustom: "", ...rest, olderThanDays: null };
   }
   var settings = y3(defaultSettings);
   var filter = y3(defaultUiFilter());
@@ -3715,7 +3769,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
       f4.exclude.length > 0,
       f4.pinned !== "exclude",
       !f4.includeNsfw,
-      !!(f4.afterDate || f4.beforeDate),
+      !!(f4.afterDate || f4.beforeDate || f4.olderThanDays),
       !!(f4.afterId || f4.beforeId)
     ].filter(Boolean).length;
   }
@@ -3755,8 +3809,11 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     mode: y3("channel"),
     dms: y3([]),
     guilds: y3([]),
-    custom: y3("")
+    custom: y3(""),
+    /** Channels to spare when wiping a whole server, remembered per server id. */
+    excluded: y3({})
   };
+  var presets = y3([]);
   var discord = {
     token: y3(null),
     tokenState: y3("detecting"),
@@ -3766,6 +3823,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     channelInfo: y3(null),
     guilds: y3(null),
     guildsLoading: y3(false),
+    guildChannels: y3({}),
     dms: y3(null),
     dmsLoading: y3(false),
     counts: y3({}),
@@ -3832,6 +3890,8 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     ui.filtersOpen.value = load("filtersOpen", true);
     target.mode.value = load("targetMode", "channel");
     target.custom.value = load("customTargets", "");
+    target.excluded.value = load("excludedChannels", {});
+    presets.value = load("presets", []);
     savedSession.value = load("session", null);
     j2(() => save("settings", settings.value));
     j2(() => save("filter", filter.value));
@@ -3839,6 +3899,8 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     j2(() => save("filtersOpen", ui.filtersOpen.value));
     j2(() => save("targetMode", target.mode.value));
     j2(() => save("customTargets", target.custom.value));
+    j2(() => save("excludedChannels", target.excluded.value));
+    j2(() => save("presets", presets.value));
     j2(() => {
       const lang = settings.value.lang;
       currentLang.value = lang === "auto" ? detectLang() : lang;
@@ -4033,8 +4095,9 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
       if (!authorIds.length) return { error: "toast.badAuthor" };
     }
     if (compileRegex(f4.pattern).error) return { error: "toast.badRegex" };
-    const { authorMode: _m, authorCustom: _c, ...rest } = f4;
-    return { filter: { ...rest, authorIds } };
+    const { authorMode: _m, authorCustom: _c, olderThanDays, ...rest } = f4;
+    const beforeDate = olderThanDays ? daysAgoLocal(olderThanDays) : rest.beforeDate;
+    return { filter: { ...rest, beforeDate, authorIds } };
   }
   function parseCustomTargets(text) {
     const out = [];
@@ -4062,6 +4125,62 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     return out;
   }
   var dmLabel = (ch) => channelLabel(describeChannel(ch));
+  var excludedIn = (guildId) => {
+    const ids = target.excluded.value[guildId] ?? [];
+    return ids.length ? ids : void 0;
+  };
+  async function loadGuildChannels(guildId, force = false) {
+    const current = discord.guildChannels.value[guildId];
+    if (current === "loading" || Array.isArray(current) && !force) return;
+    const set = (v4) => discord.guildChannels.value = { ...discord.guildChannels.value, [guildId]: v4 };
+    set("loading");
+    try {
+      const list = await api.guildChannels(guildId);
+      for (const ch of list) channelCache.set(ch.id, ch);
+      set(list);
+    } catch {
+      set("error");
+    }
+  }
+  function toggleExcludedChannel(guildId, channelIds, exclude) {
+    const all = target.excluded.peek();
+    const next = new Set(all[guildId] ?? []);
+    for (const id of channelIds) exclude ? next.add(id) : next.delete(id);
+    const copy = { ...all };
+    if (next.size) copy[guildId] = [...next];
+    else delete copy[guildId];
+    target.excluded.value = copy;
+  }
+  function savePreset(name) {
+    const clean = name.trim().slice(0, 40);
+    if (!clean) return;
+    const preset = {
+      id: `p-${Date.now().toString(36)}`,
+      name: clean,
+      filter: { ...filter.peek() },
+      targetMode: target.mode.peek(),
+      dms: [...target.dms.peek()],
+      guilds: [...target.guilds.peek()],
+      custom: target.custom.peek(),
+      mode: settings.peek().mode
+    };
+    presets.value = [...presets.peek().filter((p5) => p5.name !== clean), preset];
+    toast("success", "presets.saved", { name: clean });
+  }
+  function applyPreset(id) {
+    const p5 = presets.peek().find((x5) => x5.id === id);
+    if (!p5 || engine.isActive) return;
+    n2(() => {
+      filter.value = { ...defaultUiFilter(), ...p5.filter };
+      target.mode.value = p5.targetMode;
+      target.dms.value = p5.dms;
+      target.guilds.value = p5.guilds;
+      target.custom.value = p5.custom;
+      updateSettings({ mode: p5.mode });
+    });
+    toast("info", "presets.applied", { name: p5.name });
+  }
+  var deletePreset = (id) => presets.value = presets.peek().filter((p5) => p5.id !== id);
   function buildTargets() {
     const loc = discord.location.value;
     switch (target.mode.value) {
@@ -4073,7 +4192,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
       }
       case "guild": {
         const g4 = currentGuild.value;
-        return g4 ? [{ kind: "guild", guildId: g4.id, label: g4.name }] : [];
+        return g4 ? [{ kind: "guild", guildId: g4.id, label: g4.name, excludeChannelIds: excludedIn(g4.id) }] : [];
       }
       case "dms": {
         const dms = discord.dms.value ?? [];
@@ -4086,7 +4205,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
         const guilds = discord.guilds.value ?? [];
         return target.guilds.value.flatMap((id) => {
           const g4 = guilds.find((x5) => x5.id === id);
-          return g4 ? [{ kind: "guild", guildId: id, label: g4.name }] : [];
+          return g4 ? [{ kind: "guild", guildId: id, label: g4.name, excludeChannelIds: excludedIn(id) }] : [];
         });
       }
       case "custom":
@@ -4412,6 +4531,8 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     pin: ["M9 4h6l-1 6 4 3H6l4-3z", "M12 13v8"],
     user: ["M20 21a8 8 0 0 0-16 0", "M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0"],
     globe: [CIRCLE, "M3 12h18", "M12 3a14 14 0 0 1 0 18", "M12 3a14 14 0 0 0 0 18"],
+    plus: ["M12 5v14", "M5 12h14"],
+    bookmark: ["M6 3h12v18l-6-4-6 4z"],
     sort: ["M7 4v16", "M3 16l4 4 4-4", "M14 6h7", "M14 12h5", "M14 18h3"]
   };
   function Icon({ name, size, class: cls }) {
@@ -4650,14 +4771,32 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
           ] }),
           /* @__PURE__ */ u4("div", { class: "field", children: [
             /* @__PURE__ */ u4("span", { class: "hint", children: t4("filters.before") }),
-            /* @__PURE__ */ u4("input", { type: "datetime-local", class: "input", value: f4.beforeDate, onInput: (e4) => set({ beforeDate: e4.currentTarget.value }) })
+            /* @__PURE__ */ u4(
+              "input",
+              {
+                type: "datetime-local",
+                class: "input",
+                value: f4.olderThanDays ? daysAgoLocal(f4.olderThanDays) : f4.beforeDate,
+                disabled: !!f4.olderThanDays,
+                onInput: (e4) => set({ beforeDate: e4.currentTarget.value, olderThanDays: null })
+              }
+            )
           ] })
         ] }),
         /* @__PURE__ */ u4("div", { class: "row wrap", children: [
           /* @__PURE__ */ u4("span", { class: "hint", children: t4("filters.olderThan") }),
-          PRESETS.map(([key, days]) => /* @__PURE__ */ u4(Chip, { on: false, icon: "clock", onClick: () => set({ beforeDate: daysAgoLocal(days), afterDate: "" }), children: t4(key) })),
-          (f4.afterDate || f4.beforeDate) && /* @__PURE__ */ u4(Button, { small: true, variant: "ghost", icon: "x", onClick: () => set({ afterDate: "", beforeDate: "" }), children: t4("action.clear") })
-        ] })
+          PRESETS.map(([key, days]) => /* @__PURE__ */ u4(
+            Chip,
+            {
+              on: f4.olderThanDays === days,
+              icon: "clock",
+              onClick: () => set({ olderThanDays: f4.olderThanDays === days ? null : days, beforeDate: "" }),
+              children: t4(key)
+            }
+          )),
+          (f4.afterDate || f4.beforeDate || f4.olderThanDays) && /* @__PURE__ */ u4(Button, { small: true, variant: "ghost", icon: "x", onClick: () => set({ afterDate: "", beforeDate: "", olderThanDays: null }), children: t4("action.clear") })
+        ] }),
+        f4.olderThanDays && /* @__PURE__ */ u4("span", { class: "hint", children: t4("filters.relativeHint") })
       ] }),
       /* @__PURE__ */ u4(Field, { label: t4("filters.range"), children: /* @__PURE__ */ u4("div", { class: "grid-2", children: [
         /* @__PURE__ */ u4("div", { class: "row", children: [
@@ -4719,11 +4858,89 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
   function CurrentGuild() {
     const g4 = currentGuild.value;
     if (!g4) return /* @__PURE__ */ u4("div", { class: "current", children: /* @__PURE__ */ u4(Empty, { icon: "server", children: t4("target.noGuild") }) });
-    return /* @__PURE__ */ u4("div", { class: "current", children: [
-      /* @__PURE__ */ u4(Avatar, { url: guildIconUrl(g4), name: g4.name, square: true, size: "lg" }),
-      /* @__PURE__ */ u4("div", { class: "meta", children: [
-        /* @__PURE__ */ u4("b", { class: "priv", children: g4.name }),
-        /* @__PURE__ */ u4("span", { children: t4("target.guildDesc") })
+    return /* @__PURE__ */ u4(M, { children: [
+      /* @__PURE__ */ u4("div", { class: "current", children: [
+        /* @__PURE__ */ u4(Avatar, { url: guildIconUrl(g4), name: g4.name, square: true, size: "lg" }),
+        /* @__PURE__ */ u4("div", { class: "meta", children: [
+          /* @__PURE__ */ u4("b", { class: "priv", children: g4.name }),
+          /* @__PURE__ */ u4("span", { children: t4("target.guildDesc") })
+        ] })
+      ] }),
+      /* @__PURE__ */ u4(ChannelExclusions, { guildId: g4.id })
+    ] });
+  }
+  var MESSAGE_CHANNEL_TYPES = /* @__PURE__ */ new Set([0, 2, 5, 13, 15, 16]);
+  var channelIcon = (type) => type === 2 || type === 13 ? "users" : type === 15 || type === 16 ? "list" : "hash";
+  function groupChannels(all) {
+    const byPos = (a4, b5) => (a4.position ?? 0) - (b5.position ?? 0);
+    const categories = all.filter((c4) => c4.type === 4).sort(byPos);
+    const channels = all.filter((c4) => MESSAGE_CHANNEL_TYPES.has(c4.type)).sort(byPos);
+    const groups = [
+      { id: "none", name: null, channels: channels.filter((c4) => !c4.parent_id || !categories.some((k2) => k2.id === c4.parent_id)) },
+      ...categories.map((k2) => ({ id: k2.id, name: k2.name ?? "", channels: channels.filter((c4) => c4.parent_id === k2.id) }))
+    ];
+    return groups.filter((gr) => gr.channels.length);
+  }
+  function ChannelExclusions({ guildId }) {
+    const [open, setOpen] = d2(false);
+    const state = discord.guildChannels.value[guildId];
+    const excluded = new Set(target.excluded.value[guildId] ?? []);
+    A(() => {
+      if (open) void loadGuildChannels(guildId);
+    }, [open, guildId]);
+    const groups = b2(() => groupChannels(Array.isArray(state) ? state : []), [state]);
+    return /* @__PURE__ */ u4("div", { class: "card flat", children: [
+      /* @__PURE__ */ u4(
+        "div",
+        {
+          class: "list-row",
+          role: "button",
+          tabIndex: 0,
+          "aria-expanded": open,
+          onClick: () => setOpen(!open),
+          onKeyDown: (e4) => (e4.key === "Enter" || e4.key === " ") && (e4.preventDefault(), setOpen(!open)),
+          children: [
+            /* @__PURE__ */ u4(Icon, { name: "filter", size: "sm", class: "muted" }),
+            /* @__PURE__ */ u4("span", { class: "name", children: t4("target.channels") }),
+            /* @__PURE__ */ u4("span", { class: `pill${excluded.size ? " warn" : ""}`, children: excluded.size ? t4("target.excludedCount", { n: excluded.size }) : t4("target.allChannels") }),
+            /* @__PURE__ */ u4(Icon, { name: "chevronDown", size: "sm", class: open ? void 0 : "rot" })
+          ]
+        }
+      ),
+      open && /* @__PURE__ */ u4(M, { children: [
+        /* @__PURE__ */ u4("div", { class: "list-foot", style: { borderTop: "1px solid var(--line)" }, children: t4("target.channelsHint") }),
+        /* @__PURE__ */ u4("div", { class: "list scroll", children: state === "loading" || state === void 0 ? /* @__PURE__ */ u4("div", { class: "empty", children: [
+          /* @__PURE__ */ u4("div", { class: "spinner" }),
+          t4("target.loading")
+        ] }) : state === "error" ? /* @__PURE__ */ u4(Empty, { icon: "alert", children: t4("target.loadChannelsError") }) : groups.map((gr) => {
+          const ids = gr.channels.map((c4) => c4.id);
+          const off = ids.filter((id) => excluded.has(id)).length;
+          return /* @__PURE__ */ u4("div", { children: [
+            /* @__PURE__ */ u4("label", { class: "list-group", children: [
+              /* @__PURE__ */ u4(
+                "input",
+                {
+                  type: "checkbox",
+                  class: "check",
+                  checked: off === 0,
+                  ref: (el) => {
+                    if (el) el.indeterminate = off > 0 && off < ids.length;
+                  },
+                  onChange: () => toggleExcludedChannel(guildId, ids, off === 0)
+                }
+              ),
+              /* @__PURE__ */ u4("span", { class: "priv", children: gr.name ?? t4("target.noCategory") })
+            ] }),
+            gr.channels.map((ch) => {
+              const on = !excluded.has(ch.id);
+              return /* @__PURE__ */ u4("label", { class: `list-row sub-row${on ? "" : " off"}`, children: [
+                /* @__PURE__ */ u4("input", { type: "checkbox", class: "check", checked: on, onChange: () => toggleExcludedChannel(guildId, [ch.id], on) }),
+                /* @__PURE__ */ u4(Icon, { name: channelIcon(ch.type), size: "sm", class: "muted" }),
+                /* @__PURE__ */ u4("span", { class: "name priv", children: ch.name })
+              ] }, ch.id);
+            })
+          ] }, gr.id);
+        }) })
       ] })
     ] });
   }
@@ -4754,9 +4971,16 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
   function GuildList() {
     A(() => void loadGuilds(), []);
     const guilds = discord.guilds.value;
+    const excluded = target.excluded.value;
     const items = b2(
-      () => (guilds ?? []).map((g4) => ({ id: g4.id, name: g4.name, iconUrl: guildIconUrl(g4), square: true })),
-      [guilds]
+      () => (guilds ?? []).map((g4) => ({
+        id: g4.id,
+        name: g4.name,
+        iconUrl: guildIconUrl(g4),
+        square: true,
+        badge: excluded[g4.id]?.length ? t4("target.excludedShort", { n: excluded[g4.id].length }) : void 0
+      })),
+      [guilds, excluded]
     );
     return /* @__PURE__ */ u4(
       SelectList,
@@ -4818,6 +5042,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
           /* @__PURE__ */ u4(Avatar, { url: item.iconUrl, name: item.name, square: item.square, icon: item.iconUrl ? void 0 : item.icon }),
           /* @__PURE__ */ u4("span", { class: "name priv", children: item.name }),
           item.sub && /* @__PURE__ */ u4("span", { class: "sub", children: item.sub }),
+          item.badge && /* @__PURE__ */ u4("span", { class: "pill warn", children: item.badge }),
           c4 === "loading" ? /* @__PURE__ */ u4("div", { class: "spinner" }) : c4 === "error" ? /* @__PURE__ */ u4(Icon, { name: "alert", size: "sm", class: "muted" }) : typeof c4 === "number" ? /* @__PURE__ */ u4("span", { class: `pill${c4 > 0 ? " accent" : ""}`, children: fmt(c4) }) : null
         ] }, item.id);
       }) }),
@@ -4900,6 +5125,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
     return /* @__PURE__ */ u4(M, { children: [
       /* @__PURE__ */ u4(AccountBanner, {}),
       /* @__PURE__ */ u4(SessionBanner, {}),
+      /* @__PURE__ */ u4(PresetsBar, {}),
       /* @__PURE__ */ u4(Section, { title: t4("target.title"), children: /* @__PURE__ */ u4(TargetPanel, {}) }),
       /* @__PURE__ */ u4(
         Section,
@@ -4918,6 +5144,55 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
         /* @__PURE__ */ u4(ModeCard, { on: mode === "search", icon: "zap", title: t4("mode.search"), desc: t4("mode.searchDesc"), onClick: () => updateSettings({ mode: "search" }) }),
         /* @__PURE__ */ u4(ModeCard, { on: mode === "history", icon: "history", title: t4("mode.history"), desc: t4("mode.historyDesc"), onClick: () => updateSettings({ mode: "history" }) })
       ] }) })
+    ] });
+  }
+  function PresetsBar() {
+    const list = presets.value;
+    const busy = run.status.value === "running" || run.status.value === "paused";
+    const [naming, setNaming] = d2(false);
+    const [name, setName] = d2("");
+    const inputRef = T2(null);
+    A(() => {
+      if (naming) inputRef.current?.focus();
+    }, [naming]);
+    const close = () => {
+      setNaming(false);
+      setName("");
+    };
+    const submit = () => {
+      if (!name.trim()) return;
+      savePreset(name);
+      close();
+    };
+    return /* @__PURE__ */ u4("div", { class: "presets", children: [
+      /* @__PURE__ */ u4("span", { class: "label", children: [
+        /* @__PURE__ */ u4(Icon, { name: "bookmark", size: "sm" }),
+        t4("presets.title")
+      ] }),
+      list.map((p5) => /* @__PURE__ */ u4("span", { class: "preset-chip", children: [
+        /* @__PURE__ */ u4("button", { type: "button", disabled: busy, onClick: () => applyPreset(p5.id), children: p5.name }),
+        /* @__PURE__ */ u4("button", { type: "button", class: "x", title: t4("presets.delete"), "aria-label": t4("presets.delete"), onClick: () => deletePreset(p5.id), children: /* @__PURE__ */ u4(Icon, { name: "x", size: "sm" }) })
+      ] }, p5.id)),
+      naming ? /* @__PURE__ */ u4("span", { class: "row", children: [
+        /* @__PURE__ */ u4(
+          "input",
+          {
+            ref: inputRef,
+            class: "input sm",
+            value: name,
+            maxLength: 40,
+            placeholder: t4("presets.namePh"),
+            onInput: (e4) => setName(e4.currentTarget.value),
+            onKeyDown: (e4) => {
+              if (e4.key === "Enter") submit();
+              if (e4.key === "Escape") close();
+            }
+          }
+        ),
+        /* @__PURE__ */ u4(Button, { small: true, variant: "primary", disabled: !name.trim(), onClick: submit, children: t4("presets.save") }),
+        /* @__PURE__ */ u4(Button, { small: true, variant: "ghost", icon: "x", "aria-label": t4("action.cancel"), onClick: close })
+      ] }) : /* @__PURE__ */ u4(Button, { small: true, variant: "ghost", icon: "plus", onClick: () => setNaming(true), children: t4("presets.saveCurrent") }),
+      !list.length && !naming && /* @__PURE__ */ u4("span", { class: "hint", children: t4("presets.empty") })
     ] });
   }
   function ModeCard(props) {
@@ -5839,7 +6114,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
   }
 
   // src/ui/styles.css
-  var styles_default = '/* Lives inside a shadow root: nothing here leaks into Discord and vice versa. */\r\n\r\n:host { all: initial; }\r\n\r\n.root {\r\n  --font: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;\r\n  --mono: "gg mono", "JetBrains Mono", Consolas, "Courier New", monospace;\r\n  --radius: 10px;\r\n  --radius-lg: 14px;\r\n  font: 400 14px/1.45 var(--font);\r\n  color: var(--text);\r\n  -webkit-font-smoothing: antialiased;\r\n}\r\n\r\n.root[data-theme="dark"] {\r\n  color-scheme: dark;\r\n  --bg: #1b1c1f;\r\n  --bg-2: #222327;\r\n  --bg-3: #2b2d31;\r\n  --bg-4: #35373c;\r\n  --line: rgba(255, 255, 255, 0.07);\r\n  --line-strong: rgba(255, 255, 255, 0.13);\r\n  --text: #f2f3f5;\r\n  --text-2: #b5bac1;\r\n  --text-3: #80848e;\r\n  --accent: #5865f2;\r\n  --accent-2: #4752c4;\r\n  --accent-soft: rgba(88, 101, 242, 0.16);\r\n  --accent-text: #c9cdfb;\r\n  --danger: #e5484d;\r\n  --danger-2: #c93d42;\r\n  --danger-soft: rgba(229, 72, 77, 0.14);\r\n  --danger-text: #ff9b9e;\r\n  --success: #2bb673;\r\n  --success-soft: rgba(43, 182, 115, 0.15);\r\n  --success-text: #7ee2ae;\r\n  --warn: #f0b232;\r\n  --warn-soft: rgba(240, 178, 50, 0.14);\r\n  --warn-text: #f8d48a;\r\n  --shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.07);\r\n  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.35);\r\n  --overlay: rgba(10, 10, 12, 0.6);\r\n}\r\n\r\n.root[data-theme="light"] {\r\n  color-scheme: light;\r\n  --bg: #ffffff;\r\n  --bg-2: #f6f7f9;\r\n  --bg-3: #ebedf0;\r\n  --bg-4: #dfe1e6;\r\n  --line: rgba(0, 0, 0, 0.07);\r\n  --line-strong: rgba(0, 0, 0, 0.13);\r\n  --text: #1d1f23;\r\n  --text-2: #4e5058;\r\n  --text-3: #7b7e86;\r\n  --accent: #5865f2;\r\n  --accent-2: #4752c4;\r\n  --accent-soft: rgba(88, 101, 242, 0.12);\r\n  --accent-text: #3a43b0;\r\n  --danger: #da373c;\r\n  --danger-2: #b92d31;\r\n  --danger-soft: rgba(218, 55, 60, 0.1);\r\n  --danger-text: #b3262b;\r\n  --success: #1f9d5f;\r\n  --success-soft: rgba(31, 157, 95, 0.12);\r\n  --success-text: #157046;\r\n  --warn: #c98a0b;\r\n  --warn-soft: rgba(201, 138, 11, 0.12);\r\n  --warn-text: #8a5d00;\r\n  --shadow: 0 24px 70px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);\r\n  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.12);\r\n  --overlay: rgba(30, 31, 34, 0.35);\r\n}\r\n\r\n*, *::before, *::after { box-sizing: border-box; }\r\nbutton, input, select, textarea { font: inherit; color: inherit; }\r\nbutton { cursor: pointer; }\r\n:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n::selection { background: var(--accent-soft); }\r\n\r\n.scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--bg-4) transparent; }\r\n.scroll::-webkit-scrollbar { width: 10px; height: 10px; }\r\n.scroll::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }\r\n\r\n/* ---- window ---------------------------------------------------------- */\r\n\r\n.win {\r\n  position: fixed;\r\n  z-index: 2147483000;\r\n  display: grid;\r\n  grid-template-rows: auto minmax(0, 1fr) auto;\r\n  background: var(--bg);\r\n  border-radius: var(--radius-lg);\r\n  box-shadow: var(--shadow);\r\n  overflow: hidden;\r\n  animation: win-in 0.16s ease-out;\r\n}\r\n@keyframes win-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } }\r\n\r\n.win-header {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 10px;\r\n  height: 52px;\r\n  padding: 0 8px 0 14px;\r\n  border-bottom: 1px solid var(--line);\r\n  cursor: grab;\r\n  user-select: none;\r\n  touch-action: none;\r\n}\r\n.win-header:active { cursor: grabbing; }\r\n.win-title { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }\r\n.win-title b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }\r\n.win-title span { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n.win-header kbd { white-space: nowrap; }\r\n.root.compact .win-header kbd { display: none; }\r\n.logo {\r\n  width: 30px; height: 30px; border-radius: 9px; flex: none;\r\n  display: grid; place-items: center; color: #fff;\r\n  background: linear-gradient(135deg, #7983f5 0%, #5865f2 45%, #4049c9 100%);\r\n  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 12px rgba(88,101,242,.35);\r\n}\r\n.spacer { flex: 1; }\r\n\r\n.win-body { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 0; }\r\n.root.compact .win-body { grid-template-columns: 58px minmax(0, 1fr); }\r\n\r\n.nav {\r\n  display: flex; flex-direction: column; gap: 2px;\r\n  padding: 10px 8px; background: var(--bg-2); border-right: 1px solid var(--line); min-height: 0;\r\n}\r\n.nav-item {\r\n  all: unset; box-sizing: border-box; cursor: pointer;\r\n  display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 11px;\r\n  border-radius: 9px; color: var(--text-2); font-weight: 500; position: relative;\r\n}\r\n.nav-item:hover { background: var(--bg-3); color: var(--text); }\r\n.nav-item.active { background: var(--accent-soft); color: var(--text); }\r\n.nav-item.active svg { color: var(--accent); }\r\n.nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n.nav-item .count {\r\n  margin-left: auto; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px;\r\n  background: var(--bg-4); color: var(--text-2);\r\n}\r\n.root.compact .nav-item { justify-content: center; padding: 0; }\r\n.root.compact .nav-item .nav-label, .root.compact .nav-item .count, .root.compact .account .who { display: none; }\r\n\r\n.account {\r\n  margin-top: auto; display: flex; align-items: center; gap: 9px; padding: 8px;\r\n  border-radius: 10px; background: var(--bg-3); min-width: 0; cursor: pointer;\r\n}\r\n.account:hover { background: var(--bg-4); }\r\n.root.compact .account { justify-content: center; padding: 6px 0; background: none; }\r\n.account .who { min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }\r\n.account .who b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.account .who span { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n\r\n.content { padding: 18px 20px 28px; min-height: 0; }\r\n.content > * + * { margin-top: 18px; }\r\n\r\n.win-footer {\r\n  display: flex; align-items: center; gap: 10px; padding: 10px 14px;\r\n  border-top: 1px solid var(--line); background: var(--bg); min-height: 58px;\r\n}\r\n.win-footer .summary { min-width: 0; color: var(--text-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n\r\n.resize {\r\n  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none;\r\n  background: linear-gradient(135deg, transparent 50%, var(--line-strong) 50%, var(--line-strong) 58%, transparent 58%, transparent 70%, var(--line-strong) 70%, var(--line-strong) 78%, transparent 78%);\r\n}\r\n\r\n/* ---- primitives ---------------------------------------------------------- */\r\n\r\n.icon { width: 18px; height: 18px; flex: none; display: block; }\r\n.icon.sm { width: 15px; height: 15px; }\r\n.icon.lg { width: 22px; height: 22px; }\r\n\r\n.btn {\r\n  all: unset; box-sizing: border-box; cursor: pointer; user-select: none;\r\n  display: inline-flex; align-items: center; justify-content: center; gap: 7px;\r\n  height: 36px; padding: 0 14px; border-radius: 9px; font-weight: 600; font-size: 14px; white-space: nowrap;\r\n  background: var(--bg-3); color: var(--text); transition: background 0.12s, transform 0.06s, opacity 0.12s;\r\n}\r\n.btn:hover { background: var(--bg-4); }\r\n.btn:active { transform: translateY(1px); }\r\n.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n.btn[disabled] { opacity: 0.45; pointer-events: none; }\r\n.btn.primary { background: var(--accent); color: #fff; }\r\n.btn.primary:hover { background: var(--accent-2); }\r\n.btn.danger { background: var(--danger); color: #fff; }\r\n.btn.danger:hover { background: var(--danger-2); }\r\n.btn.ghost { background: transparent; color: var(--text-2); }\r\n.btn.ghost:hover { background: var(--bg-3); color: var(--text); }\r\n.btn.sm { height: 30px; padding: 0 10px; font-size: 13px; border-radius: 8px; gap: 6px; }\r\n.btn.icon-only { width: 36px; padding: 0; }\r\n.btn.sm.icon-only { width: 30px; }\r\n\r\n.input, .textarea, .select {\r\n  width: 100%; height: 36px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line);\r\n  background: var(--bg-2); color: var(--text); outline: none; transition: border-color 0.12s, box-shadow 0.12s;\r\n}\r\n.textarea { height: auto; min-height: 92px; padding: 9px 11px; resize: vertical; font-family: var(--mono); font-size: 13px; }\r\n.input:hover, .textarea:hover { border-color: var(--line-strong); }\r\n.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }\r\n.input.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }\r\n.input::placeholder, .textarea::placeholder { color: var(--text-3); }\r\n.input-wrap { position: relative; display: flex; align-items: center; }\r\n.input-wrap > .icon { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; }\r\n.input-wrap > .input { padding-left: 34px; }\r\n.input.mono { font-family: var(--mono); font-size: 13px; }\r\n\r\n.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }\r\n.field > label, .label {\r\n  font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em;\r\n}\r\n.hint { font-size: 12.5px; color: var(--text-3); line-height: 1.4; }\r\n.hint.error { color: var(--danger-text); }\r\n.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }\r\n.row { display: flex; align-items: center; gap: 8px; min-width: 0; }\r\n.row.wrap { flex-wrap: wrap; }\r\n.row.end { justify-content: flex-end; }\r\n.root.narrow .grid-2 { grid-template-columns: minmax(0, 1fr); }\r\n\r\n.seg {\r\n  display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 11px; background: var(--bg-2);\r\n  border: 1px solid var(--line);\r\n}\r\n.seg button {\r\n  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;\r\n  height: 32px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 13px; color: var(--text-2);\r\n}\r\n.seg button:hover { color: var(--text); background: var(--bg-3); }\r\n.seg button.on { background: var(--bg-4); color: var(--text); box-shadow: var(--shadow-sm); }\r\n.root[data-theme="light"] .seg button.on { background: var(--bg); }\r\n.seg button:focus-visible { outline: 2px solid var(--accent); }\r\n.seg.full { display: flex; }\r\n.seg.full button { flex: 1; justify-content: center; }\r\n\r\n.chips { display: flex; flex-wrap: wrap; gap: 6px; }\r\n.chip {\r\n  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;\r\n  height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--line-strong);\r\n  font-size: 13px; font-weight: 500; color: var(--text-2); transition: all 0.12s;\r\n}\r\n.chip:hover { color: var(--text); border-color: var(--text-3); }\r\n.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }\r\n.chip.on.neg { background: var(--danger-soft); border-color: var(--danger); }\r\n.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n.switch { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 4px 0; }\r\n.switch .track {\r\n  position: relative; flex: none; width: 38px; height: 22px; border-radius: 99px; margin-top: 1px;\r\n  background: var(--bg-4); transition: background 0.15s;\r\n}\r\n.switch .track::after {\r\n  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;\r\n  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform 0.15s;\r\n}\r\n.switch.on .track { background: var(--accent); }\r\n.switch.on .track::after { transform: translateX(16px); }\r\n.switch input { position: absolute; opacity: 0; pointer-events: none; }\r\n.switch .text { display: flex; flex-direction: column; gap: 2px; }\r\n.switch .text b { font-weight: 600; font-size: 14px; }\r\n.switch:focus-within .track { box-shadow: 0 0 0 3px var(--accent-soft); }\r\n\r\n.check {\r\n  appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; margin: 0; border-radius: 5px;\r\n  border: 2px solid var(--text-3); display: grid; place-items: center; cursor: pointer; transition: all 0.1s;\r\n}\r\n.check:checked { background: var(--accent); border-color: var(--accent); }\r\n.check:checked::after {\r\n  content: ""; width: 9px; height: 5px; border: 2px solid #fff; border-top: 0; border-right: 0;\r\n  transform: translateY(-1px) rotate(-45deg);\r\n}\r\n.check:indeterminate { background: var(--accent); border-color: var(--accent); }\r\n.check:indeterminate::after { content: ""; width: 8px; height: 2px; background: #fff; border-radius: 2px; }\r\n\r\n.section { display: flex; flex-direction: column; gap: 12px; }\r\n.section-head { display: flex; align-items: center; gap: 8px; min-height: 26px; }\r\n.section-head h3 {\r\n  margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3);\r\n}\r\n.section-head .toggle { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; }\r\n.section-head .toggle .icon { color: var(--text-3); transition: transform 0.15s; }\r\n.section-head .toggle.closed .icon { transform: rotate(-90deg); }\r\n\r\n.card {\r\n  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px;\r\n}\r\n.card.flat { padding: 0; overflow: hidden; }\r\n.stack { display: flex; flex-direction: column; gap: 14px; }\r\n.stack.tight { gap: 8px; }\r\n\r\n.pill {\r\n  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 99px;\r\n  font-size: 12px; font-weight: 700; background: var(--bg-3); color: var(--text-2); white-space: nowrap;\r\n}\r\n.pill.accent { background: var(--accent-soft); color: var(--accent-text); }\r\n.pill.success { background: var(--success-soft); color: var(--success-text); }\r\n.pill.warn { background: var(--warn-soft); color: var(--warn-text); }\r\n.pill.danger { background: var(--danger-soft); color: var(--danger-text); }\r\n.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }\r\n.dot.pulse { animation: pulse 1.4s ease-in-out infinite; }\r\n@keyframes pulse { 50% { opacity: 0.35; } }\r\n\r\n.avatar {\r\n  width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; display: grid; place-items: center;\r\n  background: var(--bg-4); color: var(--text-2); font-size: 12px; font-weight: 700;\r\n}\r\n.avatar.square { border-radius: 10px; }\r\n.avatar.sm { width: 26px; height: 26px; font-size: 11px; }\r\n.avatar.lg { width: 44px; height: 44px; font-size: 15px; }\r\n.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }\r\n\r\n.banner { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid; }\r\n.banner .icon { margin-top: 1px; }\r\n.banner > div { flex: 1; min-width: 0; }\r\n.banner b { display: block; margin-bottom: 2px; }\r\n.banner.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, transparent); color: var(--warn-text); }\r\n.banner.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--accent-text); }\r\n.banner.danger { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--danger-text); }\r\n.banner .hint { color: inherit; opacity: 0.85; }\r\n\r\n.empty {\r\n  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px;\r\n  padding: 28px 16px; color: var(--text-3);\r\n}\r\n.empty .icon { width: 30px; height: 30px; opacity: 0.6; }\r\n\r\n.spinner {\r\n  width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--bg-4); border-top-color: var(--accent);\r\n  animation: spin 0.7s linear infinite; flex: none;\r\n}\r\n@keyframes spin { to { transform: rotate(360deg); } }\r\n\r\n/* ---- target ---------------------------------------------------------------- */\r\n\r\n.current {\r\n  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;\r\n  background: var(--bg-2); border: 1px solid var(--line);\r\n}\r\n.current .meta { min-width: 0; flex: 1; }\r\n.current .meta b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.current .meta span { font-size: 13px; color: var(--text-3); }\r\n\r\n.list { max-height: 280px; }\r\n.list-toolbar { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: center; }\r\n.list-toolbar .input-wrap { flex: 1; min-width: 160px; }\r\n.list-toolbar .input { height: 32px; }\r\n.list-row {\r\n  display: flex; align-items: center; gap: 11px; padding: 7px 12px; cursor: pointer; min-height: 46px;\r\n  border-bottom: 1px solid var(--line);\r\n}\r\n.list-row:last-child { border-bottom: 0; }\r\n.list-row:hover { background: var(--bg-3); }\r\n.list-row.on { background: var(--accent-soft); }\r\n.list-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }\r\n.list-row .sub { font-size: 12px; color: var(--text-3); }\r\n.list-row .num { font-variant-numeric: tabular-nums; font-size: 12.5px; font-weight: 700; color: var(--text-2); }\r\n.list-foot { padding: 7px 12px; font-size: 12px; color: var(--text-3); border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }\r\n\r\n.mode-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }\r\n.root.narrow .mode-cards { grid-template-columns: minmax(0, 1fr); }\r\n.mode-card {\r\n  all: unset; box-sizing: border-box; cursor: pointer; display: flex; gap: 11px; align-items: flex-start;\r\n  padding: 12px 13px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--bg-2);\r\n}\r\n.mode-card:hover { border-color: var(--text-3); }\r\n.mode-card.on { border-color: var(--accent); background: var(--accent-soft); }\r\n.mode-card.on > .icon { color: var(--accent); }\r\n.mode-card b { display: block; font-size: 14px; }\r\n.mode-card span { font-size: 12.5px; color: var(--text-3); }\r\n.mode-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* ---- run dashboard ------------------------------------------------------------- */\r\n\r\n.hero { display: flex; flex-direction: column; gap: 12px; }\r\n.hero-top { display: flex; align-items: flex-end; gap: 14px; }\r\n.hero-pct { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }\r\n.hero-sub { color: var(--text-2); font-size: 13px; padding-bottom: 4px; }\r\n.progress { height: 10px; border-radius: 99px; background: var(--bg-3); overflow: hidden; position: relative; }\r\n.progress > i {\r\n  display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease;\r\n  background: linear-gradient(90deg, var(--accent) 0%, #8b93ff 100%);\r\n}\r\n.progress.danger > i { background: linear-gradient(90deg, #e5484d 0%, #ff7b6b 100%); }\r\n.progress.indeterminate > i { width: 35% !important; animation: indet 1.3s ease-in-out infinite; }\r\n.progress.paused > i { background: var(--warn); animation: none; }\r\n.progress.sm { height: 6px; }\r\n@keyframes indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }\r\n\r\n.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }\r\n.stat { padding: 11px 13px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); min-width: 0; }\r\n.stat span { display: block; font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }\r\n.stat b { display: block; margin-top: 3px; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n.stat.success b { color: var(--success-text); }\r\n.stat.danger b { color: var(--danger-text); }\r\n\r\n.two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; }\r\n.root.narrow .two-col { grid-template-columns: minmax(0, 1fr); }\r\n\r\n.job { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }\r\n.job:last-child { border-bottom: 0; }\r\n.job .row b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13.5px; }\r\n.job .nums { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }\r\n.job.running { background: var(--accent-soft); }\r\n\r\n.feed-item { display: flex; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); animation: feed-in 0.25s ease-out; }\r\n.feed-item:last-child { border-bottom: 0; }\r\n@keyframes feed-in { from { opacity: 0; transform: translateY(-4px); } }\r\n.feed-item .body { min-width: 0; flex: 1; }\r\n.feed-item .where { font-size: 12px; color: var(--text-3); display: flex; gap: 6px; }\r\n.feed-item .text { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.feed-item .text.strike { text-decoration: line-through; text-decoration-color: var(--danger); color: var(--text-2); }\r\n.feed-item .icon { margin-top: 2px; }\r\n\r\n.panel-title { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 13px; }\r\n.panel-title .pill { margin-left: auto; }\r\n.panel-body { max-height: 300px; }\r\n\r\n/* ---- footer run bar -------------------------------------------------------------- */\r\n\r\n.runbar { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }\r\n.runbar .progress { flex: 1; min-width: 60px; }\r\n.runbar .txt { font-size: 13px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }\r\n\r\n/* ---- results / archive / logs ------------------------------------------------------ */\r\n\r\n.msg-row { display: flex; gap: 11px; align-items: flex-start; padding: 9px 12px; border-bottom: 1px solid var(--line); }\r\n.msg-row:last-child { border-bottom: 0; }\r\n.msg-row:hover { background: var(--bg-3); }\r\n.msg-row.off { opacity: 0.5; }\r\n.msg-row .check { margin-top: 2px; }\r\n.msg-row .body { flex: 1; min-width: 0; }\r\n.msg-row .top { display: flex; gap: 8px; font-size: 12px; color: var(--text-3); }\r\n.msg-row .top b { color: var(--text-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.msg-row .text { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; max-height: 4.4em; overflow: hidden; }\r\n.msg-row .att { font-size: 12px; color: var(--accent-text); margin-top: 2px; }\r\n\r\n.log { font-family: var(--mono); font-size: 12.5px; }\r\n.log-row { display: flex; gap: 10px; padding: 4px 12px; border-bottom: 1px solid var(--line); line-height: 1.5; }\r\n.log-row time { color: var(--text-3); flex: none; }\r\n.log-row .lvl { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }\r\n.log-row.debug { color: var(--text-2); }\r\n.log-row.debug .lvl { background: var(--text-3); }\r\n.log-row.info .lvl { background: var(--accent); }\r\n.log-row.success { color: var(--success-text); }\r\n.log-row.success .lvl { background: var(--success); }\r\n.log-row.warn { color: var(--warn-text); }\r\n.log-row.warn .lvl { background: var(--warn); }\r\n.log-row.error { color: var(--danger-text); }\r\n.log-row.error .lvl { background: var(--danger); }\r\n.log-row span { word-break: break-word; }\r\n\r\n.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }\r\n.table th {\r\n  position: sticky; top: 0; z-index: 1; background: var(--bg-2); text-align: left; font-size: 11.5px; font-weight: 700;\r\n  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); padding: 9px 10px; border-bottom: 1px solid var(--line);\r\n}\r\n.table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }\r\n.table tr:hover td { background: var(--bg-3); }\r\n.table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }\r\n.table .name { max-width: 0; width: 100%; }\r\n.table .name > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.table .muted { color: var(--text-3); font-size: 12px; }\r\n\r\n.steps { margin: 0; padding-left: 20px; color: var(--text-2); display: flex; flex-direction: column; gap: 4px; }\r\n.picker {\r\n  display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 26px 16px; text-align: center;\r\n  border: 2px dashed var(--line-strong); border-radius: 14px; background: var(--bg-2);\r\n}\r\n.picker .big { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }\r\n\r\n.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }\r\n.kv dt { color: var(--text-3); }\r\n.kv dd { margin: 0; }\r\n\r\n/* ---- range ---------------------------------------------------------------------- */\r\n\r\n.range { display: flex; align-items: center; gap: 12px; }\r\n.range input[type="range"] { flex: 1; accent-color: var(--accent); }\r\n.range output { width: 70px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }\r\n\r\n/* ---- overlays ---------------------------------------------------------------------- */\r\n\r\n.overlay {\r\n  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;\r\n  background: var(--overlay); backdrop-filter: blur(3px); animation: fade 0.12s ease-out;\r\n}\r\n@keyframes fade { from { opacity: 0; } }\r\n.dialog {\r\n  width: min(460px, 100%); background: var(--bg); border-radius: 16px; box-shadow: var(--shadow); padding: 20px;\r\n  display: flex; flex-direction: column; gap: 14px; animation: win-in 0.16s ease-out;\r\n}\r\n.dialog h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px; }\r\n.dialog .danger-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--danger-soft); color: var(--danger); }\r\n.dialog p { margin: 0; color: var(--text-2); }\r\n.dialog .big-num { font-size: 15px; color: var(--text); font-weight: 600; }\r\n\r\n.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 2147483600; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }\r\n.toast {\r\n  pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: 360px; padding: 10px 14px;\r\n  border-radius: 12px; background: var(--bg); box-shadow: var(--shadow); font-weight: 500; cursor: pointer;\r\n  animation: toast-in 0.2s ease-out; border-left: 4px solid var(--accent);\r\n}\r\n.toast.success { border-left-color: var(--success); }\r\n.toast.warn { border-left-color: var(--warn); }\r\n.toast.error { border-left-color: var(--danger); }\r\n@keyframes toast-in { from { opacity: 0; transform: translateX(12px); } }\r\n\r\n.fab {\r\n  all: unset; box-sizing: border-box; cursor: pointer; position: fixed; right: 22px; bottom: 92px; z-index: 2147482999;\r\n  width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; color: #fff;\r\n  background: linear-gradient(135deg, #7983f5 0%, #5865f2 45%, #4049c9 100%);\r\n  box-shadow: 0 10px 28px rgba(88, 101, 242, 0.45), inset 0 1px 0 rgba(255,255,255,.25);\r\n  transition: transform 0.15s;\r\n}\r\n.fab:hover { transform: translateY(-2px) scale(1.04); }\r\n.fab .ring { position: absolute; inset: -4px; }\r\n.fab .ring circle { fill: none; stroke-width: 3; }\r\n\r\n/* ---- privacy -------------------------------------------------------------------------- */\r\n\r\n.root.privacy .priv { filter: blur(6px); transition: filter 0.15s; }\r\n.root.privacy .priv:hover { filter: none; }\r\n\r\n.muted { color: var(--text-3); }\r\n.small { font-size: 12.5px; }\r\n.nowrap { white-space: nowrap; }\r\n.tabular { font-variant-numeric: tabular-nums; }\r\n.grow { flex: 1; min-width: 0; }\r\n.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.link { all: unset; cursor: pointer; color: var(--accent-text); font-weight: 600; }\r\n.link:hover { text-decoration: underline; }\r\nhr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }\r\nkbd {\r\n  font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius: 6px;\r\n  background: var(--bg-3); border: 1px solid var(--line-strong); border-bottom-width: 2px;\r\n}\r\n';
+  var styles_default = '/* Lives inside a shadow root: nothing here leaks into Discord and vice versa. */\n\n:host { all: initial; }\n\n.root {\n  --font: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;\n  --mono: "gg mono", "JetBrains Mono", Consolas, "Courier New", monospace;\n  --radius: 10px;\n  --radius-lg: 14px;\n  font: 400 14px/1.45 var(--font);\n  color: var(--text);\n  -webkit-font-smoothing: antialiased;\n}\n\n.root[data-theme="dark"] {\n  color-scheme: dark;\n  --bg: #1b1c1f;\n  --bg-2: #222327;\n  --bg-3: #2b2d31;\n  --bg-4: #35373c;\n  --line: rgba(255, 255, 255, 0.07);\n  --line-strong: rgba(255, 255, 255, 0.13);\n  --text: #f2f3f5;\n  --text-2: #b5bac1;\n  --text-3: #80848e;\n  --accent: #5865f2;\n  --accent-2: #4752c4;\n  --accent-soft: rgba(88, 101, 242, 0.16);\n  --accent-text: #c9cdfb;\n  --danger: #e5484d;\n  --danger-2: #c93d42;\n  --danger-soft: rgba(229, 72, 77, 0.14);\n  --danger-text: #ff9b9e;\n  --success: #2bb673;\n  --success-soft: rgba(43, 182, 115, 0.15);\n  --success-text: #7ee2ae;\n  --warn: #f0b232;\n  --warn-soft: rgba(240, 178, 50, 0.14);\n  --warn-text: #f8d48a;\n  --shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.07);\n  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.35);\n  --overlay: rgba(10, 10, 12, 0.6);\n}\n\n.root[data-theme="light"] {\n  color-scheme: light;\n  --bg: #ffffff;\n  --bg-2: #f6f7f9;\n  --bg-3: #ebedf0;\n  --bg-4: #dfe1e6;\n  --line: rgba(0, 0, 0, 0.07);\n  --line-strong: rgba(0, 0, 0, 0.13);\n  --text: #1d1f23;\n  --text-2: #4e5058;\n  --text-3: #7b7e86;\n  --accent: #5865f2;\n  --accent-2: #4752c4;\n  --accent-soft: rgba(88, 101, 242, 0.12);\n  --accent-text: #3a43b0;\n  --danger: #da373c;\n  --danger-2: #b92d31;\n  --danger-soft: rgba(218, 55, 60, 0.1);\n  --danger-text: #b3262b;\n  --success: #1f9d5f;\n  --success-soft: rgba(31, 157, 95, 0.12);\n  --success-text: #157046;\n  --warn: #c98a0b;\n  --warn-soft: rgba(201, 138, 11, 0.12);\n  --warn-text: #8a5d00;\n  --shadow: 0 24px 70px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);\n  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.12);\n  --overlay: rgba(30, 31, 34, 0.35);\n}\n\n*, *::before, *::after { box-sizing: border-box; }\nbutton, input, select, textarea { font: inherit; color: inherit; }\nbutton { cursor: pointer; }\n:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n::selection { background: var(--accent-soft); }\n\n.scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--bg-4) transparent; }\n.scroll::-webkit-scrollbar { width: 10px; height: 10px; }\n.scroll::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }\n\n/* ---- window ---------------------------------------------------------- */\n\n.win {\n  position: fixed;\n  z-index: 2147483000;\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr) auto;\n  background: var(--bg);\n  border-radius: var(--radius-lg);\n  box-shadow: var(--shadow);\n  overflow: hidden;\n  animation: win-in 0.16s ease-out;\n}\n@keyframes win-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } }\n\n.win-header {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  height: 52px;\n  padding: 0 8px 0 14px;\n  border-bottom: 1px solid var(--line);\n  cursor: grab;\n  user-select: none;\n  touch-action: none;\n}\n.win-header:active { cursor: grabbing; }\n.win-title { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }\n.win-title b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }\n.win-title span { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.win-header kbd { white-space: nowrap; }\n.root.compact .win-header kbd { display: none; }\n.logo {\n  width: 30px; height: 30px; border-radius: 9px; flex: none;\n  display: grid; place-items: center; color: #fff;\n  background: linear-gradient(135deg, #7983f5 0%, #5865f2 45%, #4049c9 100%);\n  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 12px rgba(88,101,242,.35);\n}\n.spacer { flex: 1; }\n\n.win-body { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 0; }\n.root.compact .win-body { grid-template-columns: 58px minmax(0, 1fr); }\n\n.nav {\n  display: flex; flex-direction: column; gap: 2px;\n  padding: 10px 8px; background: var(--bg-2); border-right: 1px solid var(--line); min-height: 0;\n}\n.nav-item {\n  all: unset; box-sizing: border-box; cursor: pointer;\n  display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 11px;\n  border-radius: 9px; color: var(--text-2); font-weight: 500; position: relative;\n}\n.nav-item:hover { background: var(--bg-3); color: var(--text); }\n.nav-item.active { background: var(--accent-soft); color: var(--text); }\n.nav-item.active svg { color: var(--accent); }\n.nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.nav-item .count {\n  margin-left: auto; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px;\n  background: var(--bg-4); color: var(--text-2);\n}\n.root.compact .nav-item { justify-content: center; padding: 0; }\n.root.compact .nav-item .nav-label, .root.compact .nav-item .count, .root.compact .account .who { display: none; }\n\n.account {\n  margin-top: auto; display: flex; align-items: center; gap: 9px; padding: 8px;\n  border-radius: 10px; background: var(--bg-3); min-width: 0; cursor: pointer;\n}\n.account:hover { background: var(--bg-4); }\n.root.compact .account { justify-content: center; padding: 6px 0; background: none; }\n.account .who { min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }\n.account .who b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.account .who span { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n\n.content { padding: 18px 20px 28px; min-height: 0; }\n.content > * + * { margin-top: 18px; }\n\n.win-footer {\n  display: flex; align-items: center; gap: 10px; padding: 10px 14px;\n  border-top: 1px solid var(--line); background: var(--bg); min-height: 58px;\n}\n.win-footer .summary { min-width: 0; color: var(--text-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n\n.resize {\n  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none;\n  background: linear-gradient(135deg, transparent 50%, var(--line-strong) 50%, var(--line-strong) 58%, transparent 58%, transparent 70%, var(--line-strong) 70%, var(--line-strong) 78%, transparent 78%);\n}\n\n/* ---- primitives ---------------------------------------------------------- */\n\n.icon { width: 18px; height: 18px; flex: none; display: block; }\n.icon.sm { width: 15px; height: 15px; }\n.icon.lg { width: 22px; height: 22px; }\n\n.btn {\n  all: unset; box-sizing: border-box; cursor: pointer; user-select: none;\n  display: inline-flex; align-items: center; justify-content: center; gap: 7px;\n  height: 36px; padding: 0 14px; border-radius: 9px; font-weight: 600; font-size: 14px; white-space: nowrap;\n  background: var(--bg-3); color: var(--text); transition: background 0.12s, transform 0.06s, opacity 0.12s;\n}\n.btn:hover { background: var(--bg-4); }\n.btn:active { transform: translateY(1px); }\n.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n.btn[disabled] { opacity: 0.45; pointer-events: none; }\n.btn.primary { background: var(--accent); color: #fff; }\n.btn.primary:hover { background: var(--accent-2); }\n.btn.danger { background: var(--danger); color: #fff; }\n.btn.danger:hover { background: var(--danger-2); }\n.btn.ghost { background: transparent; color: var(--text-2); }\n.btn.ghost:hover { background: var(--bg-3); color: var(--text); }\n.btn.sm { height: 30px; padding: 0 10px; font-size: 13px; border-radius: 8px; gap: 6px; }\n.btn.icon-only { width: 36px; padding: 0; }\n.btn.sm.icon-only { width: 30px; }\n\n.input, .textarea, .select {\n  width: 100%; height: 36px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line);\n  background: var(--bg-2); color: var(--text); outline: none; transition: border-color 0.12s, box-shadow 0.12s;\n}\n.textarea { height: auto; min-height: 92px; padding: 9px 11px; resize: vertical; font-family: var(--mono); font-size: 13px; }\n.input:hover, .textarea:hover { border-color: var(--line-strong); }\n.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }\n.input.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }\n.input::placeholder, .textarea::placeholder { color: var(--text-3); }\n.input-wrap { position: relative; display: flex; align-items: center; }\n.input-wrap > .icon { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; }\n.input-wrap > .input { padding-left: 34px; }\n.input.mono { font-family: var(--mono); font-size: 13px; }\n\n.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }\n.field > label, .label {\n  font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em;\n}\n.hint { font-size: 12.5px; color: var(--text-3); line-height: 1.4; }\n.hint.error { color: var(--danger-text); }\n.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }\n.row { display: flex; align-items: center; gap: 8px; min-width: 0; }\n.row.wrap { flex-wrap: wrap; }\n.row.end { justify-content: flex-end; }\n.root.narrow .grid-2 { grid-template-columns: minmax(0, 1fr); }\n\n.seg {\n  display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 11px; background: var(--bg-2);\n  border: 1px solid var(--line);\n}\n.seg button {\n  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;\n  height: 32px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 13px; color: var(--text-2);\n}\n.seg button:hover { color: var(--text); background: var(--bg-3); }\n.seg button.on { background: var(--bg-4); color: var(--text); box-shadow: var(--shadow-sm); }\n.root[data-theme="light"] .seg button.on { background: var(--bg); }\n.seg button:focus-visible { outline: 2px solid var(--accent); }\n.seg.full { display: flex; }\n.seg.full button { flex: 1; justify-content: center; }\n\n.chips { display: flex; flex-wrap: wrap; gap: 6px; }\n.chip {\n  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;\n  height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--line-strong);\n  font-size: 13px; font-weight: 500; color: var(--text-2); transition: all 0.12s;\n}\n.chip:hover { color: var(--text); border-color: var(--text-3); }\n.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }\n.chip.on.neg { background: var(--danger-soft); border-color: var(--danger); }\n.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n\n.switch { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 4px 0; }\n.switch .track {\n  position: relative; flex: none; width: 38px; height: 22px; border-radius: 99px; margin-top: 1px;\n  background: var(--bg-4); transition: background 0.15s;\n}\n.switch .track::after {\n  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;\n  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform 0.15s;\n}\n.switch.on .track { background: var(--accent); }\n.switch.on .track::after { transform: translateX(16px); }\n.switch input { position: absolute; opacity: 0; pointer-events: none; }\n.switch .text { display: flex; flex-direction: column; gap: 2px; }\n.switch .text b { font-weight: 600; font-size: 14px; }\n.switch:focus-within .track { box-shadow: 0 0 0 3px var(--accent-soft); }\n\n.check {\n  appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; margin: 0; border-radius: 5px;\n  border: 2px solid var(--text-3); display: grid; place-items: center; cursor: pointer; transition: all 0.1s;\n}\n.check:checked { background: var(--accent); border-color: var(--accent); }\n.check:checked::after {\n  content: ""; width: 9px; height: 5px; border: 2px solid #fff; border-top: 0; border-right: 0;\n  transform: translateY(-1px) rotate(-45deg);\n}\n.check:indeterminate { background: var(--accent); border-color: var(--accent); }\n.check:indeterminate::after { content: ""; width: 8px; height: 2px; background: #fff; border-radius: 2px; }\n\n.section { display: flex; flex-direction: column; gap: 12px; }\n.section-head { display: flex; align-items: center; gap: 8px; min-height: 26px; }\n.section-head h3 {\n  margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3);\n}\n.section-head .toggle { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; }\n.section-head .toggle .icon { color: var(--text-3); transition: transform 0.15s; }\n.section-head .toggle.closed .icon { transform: rotate(-90deg); }\n\n.card {\n  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px;\n}\n.card.flat { padding: 0; overflow: hidden; }\n.stack { display: flex; flex-direction: column; gap: 14px; }\n.stack.tight { gap: 8px; }\n\n.pill {\n  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 99px;\n  font-size: 12px; font-weight: 700; background: var(--bg-3); color: var(--text-2); white-space: nowrap;\n}\n.pill.accent { background: var(--accent-soft); color: var(--accent-text); }\n.pill.success { background: var(--success-soft); color: var(--success-text); }\n.pill.warn { background: var(--warn-soft); color: var(--warn-text); }\n.pill.danger { background: var(--danger-soft); color: var(--danger-text); }\n.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }\n.dot.pulse { animation: pulse 1.4s ease-in-out infinite; }\n@keyframes pulse { 50% { opacity: 0.35; } }\n\n.avatar {\n  width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden; display: grid; place-items: center;\n  background: var(--bg-4); color: var(--text-2); font-size: 12px; font-weight: 700;\n}\n.avatar.square { border-radius: 10px; }\n.avatar.sm { width: 26px; height: 26px; font-size: 11px; }\n.avatar.lg { width: 44px; height: 44px; font-size: 15px; }\n.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }\n\n.banner { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid; }\n.banner .icon { margin-top: 1px; }\n.banner > div { flex: 1; min-width: 0; }\n.banner b { display: block; margin-bottom: 2px; }\n.banner.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, transparent); color: var(--warn-text); }\n.banner.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--accent-text); }\n.banner.danger { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--danger-text); }\n.banner .hint { color: inherit; opacity: 0.85; }\n\n.empty {\n  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px;\n  padding: 28px 16px; color: var(--text-3);\n}\n.empty .icon { width: 30px; height: 30px; opacity: 0.6; }\n\n.spinner {\n  width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--bg-4); border-top-color: var(--accent);\n  animation: spin 0.7s linear infinite; flex: none;\n}\n@keyframes spin { to { transform: rotate(360deg); } }\n\n/* ---- target ---------------------------------------------------------------- */\n\n.current {\n  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;\n  background: var(--bg-2); border: 1px solid var(--line);\n}\n.current .meta { min-width: 0; flex: 1; }\n.current .meta b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.current .meta span { font-size: 13px; color: var(--text-3); }\n\n.list { max-height: 280px; }\n.list-toolbar { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: center; }\n.list-toolbar .input-wrap { flex: 1; min-width: 160px; }\n.list-toolbar .input { height: 32px; }\n.list-row {\n  display: flex; align-items: center; gap: 11px; padding: 7px 12px; cursor: pointer; min-height: 46px;\n  border-bottom: 1px solid var(--line);\n}\n.list-row:last-child { border-bottom: 0; }\n.list-row:hover { background: var(--bg-3); }\n.list-row.on { background: var(--accent-soft); }\n.list-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }\n.list-row .sub { font-size: 12px; color: var(--text-3); }\n.list-row .num { font-variant-numeric: tabular-nums; font-size: 12.5px; font-weight: 700; color: var(--text-2); }\n.list-row.sub-row { min-height: 38px; padding-left: 30px; }\n.list-row.off .name { color: var(--text-3); text-decoration: line-through; }\n.list-group {\n  display: flex; align-items: center; gap: 11px; padding: 10px 12px 6px; cursor: pointer;\n  font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3);\n}\n.icon.rot { transform: rotate(-90deg); }\n.list-foot { padding: 7px 12px; font-size: 12px; color: var(--text-3); border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }\n\n.presets {\n  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px;\n  border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line);\n}\n.presets > .label { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; }\n.preset-chip {\n  display: inline-flex; align-items: center; height: 30px; border-radius: 99px; overflow: hidden;\n  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);\n}\n.preset-chip button {\n  all: unset; box-sizing: border-box; cursor: pointer; height: 100%; display: inline-flex; align-items: center;\n  padding: 0 4px 0 12px; font-size: 13px; font-weight: 600; color: var(--text);\n}\n.preset-chip button:hover { color: var(--accent-text); }\n.preset-chip button[disabled] { opacity: 0.5; pointer-events: none; }\n.preset-chip button.x { padding: 0 9px 0 6px; color: var(--text-3); }\n.preset-chip button.x:hover { color: var(--danger-text); }\n.preset-chip button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }\n.input.sm { height: 30px; width: 190px; }\n\n.mode-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }\n.root.narrow .mode-cards { grid-template-columns: minmax(0, 1fr); }\n.mode-card {\n  all: unset; box-sizing: border-box; cursor: pointer; display: flex; gap: 11px; align-items: flex-start;\n  padding: 12px 13px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--bg-2);\n}\n.mode-card:hover { border-color: var(--text-3); }\n.mode-card.on { border-color: var(--accent); background: var(--accent-soft); }\n.mode-card.on > .icon { color: var(--accent); }\n.mode-card b { display: block; font-size: 14px; }\n.mode-card span { font-size: 12.5px; color: var(--text-3); }\n.mode-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n\n/* ---- run dashboard ------------------------------------------------------------- */\n\n.hero { display: flex; flex-direction: column; gap: 12px; }\n.hero-top { display: flex; align-items: flex-end; gap: 14px; }\n.hero-pct { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }\n.hero-sub { color: var(--text-2); font-size: 13px; padding-bottom: 4px; }\n.progress { height: 10px; border-radius: 99px; background: var(--bg-3); overflow: hidden; position: relative; }\n.progress > i {\n  display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease;\n  background: linear-gradient(90deg, var(--accent) 0%, #8b93ff 100%);\n}\n.progress.danger > i { background: linear-gradient(90deg, #e5484d 0%, #ff7b6b 100%); }\n.progress.indeterminate > i { width: 35% !important; animation: indet 1.3s ease-in-out infinite; }\n.progress.paused > i { background: var(--warn); animation: none; }\n.progress.sm { height: 6px; }\n@keyframes indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }\n\n.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }\n.stat { padding: 11px 13px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); min-width: 0; }\n.stat span { display: block; font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }\n.stat b { display: block; margin-top: 3px; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.stat.success b { color: var(--success-text); }\n.stat.danger b { color: var(--danger-text); }\n\n.two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; }\n.root.narrow .two-col { grid-template-columns: minmax(0, 1fr); }\n\n.job { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }\n.job:last-child { border-bottom: 0; }\n.job .row b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13.5px; }\n.job .nums { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }\n.job.running { background: var(--accent-soft); }\n\n.feed-item { display: flex; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); animation: feed-in 0.25s ease-out; }\n.feed-item:last-child { border-bottom: 0; }\n@keyframes feed-in { from { opacity: 0; transform: translateY(-4px); } }\n.feed-item .body { min-width: 0; flex: 1; }\n.feed-item .where { font-size: 12px; color: var(--text-3); display: flex; gap: 6px; }\n.feed-item .text { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.feed-item .text.strike { text-decoration: line-through; text-decoration-color: var(--danger); color: var(--text-2); }\n.feed-item .icon { margin-top: 2px; }\n\n.panel-title { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 13px; }\n.panel-title .pill { margin-left: auto; }\n.panel-body { max-height: 300px; }\n\n/* ---- footer run bar -------------------------------------------------------------- */\n\n.runbar { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }\n.runbar .progress { flex: 1; min-width: 60px; }\n.runbar .txt { font-size: 13px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }\n\n/* ---- results / archive / logs ------------------------------------------------------ */\n\n.msg-row { display: flex; gap: 11px; align-items: flex-start; padding: 9px 12px; border-bottom: 1px solid var(--line); }\n.msg-row:last-child { border-bottom: 0; }\n.msg-row:hover { background: var(--bg-3); }\n.msg-row.off { opacity: 0.5; }\n.msg-row .check { margin-top: 2px; }\n.msg-row .body { flex: 1; min-width: 0; }\n.msg-row .top { display: flex; gap: 8px; font-size: 12px; color: var(--text-3); }\n.msg-row .top b { color: var(--text-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.msg-row .text { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; max-height: 4.4em; overflow: hidden; }\n.msg-row .att { font-size: 12px; color: var(--accent-text); margin-top: 2px; }\n\n.log { font-family: var(--mono); font-size: 12.5px; }\n.log-row { display: flex; gap: 10px; padding: 4px 12px; border-bottom: 1px solid var(--line); line-height: 1.5; }\n.log-row time { color: var(--text-3); flex: none; }\n.log-row .lvl { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }\n.log-row.debug { color: var(--text-2); }\n.log-row.debug .lvl { background: var(--text-3); }\n.log-row.info .lvl { background: var(--accent); }\n.log-row.success { color: var(--success-text); }\n.log-row.success .lvl { background: var(--success); }\n.log-row.warn { color: var(--warn-text); }\n.log-row.warn .lvl { background: var(--warn); }\n.log-row.error { color: var(--danger-text); }\n.log-row.error .lvl { background: var(--danger); }\n.log-row span { word-break: break-word; }\n\n.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }\n.table th {\n  position: sticky; top: 0; z-index: 1; background: var(--bg-2); text-align: left; font-size: 11.5px; font-weight: 700;\n  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); padding: 9px 10px; border-bottom: 1px solid var(--line);\n}\n.table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }\n.table tr:hover td { background: var(--bg-3); }\n.table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.table .name { max-width: 0; width: 100%; }\n.table .name > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.table .muted { color: var(--text-3); font-size: 12px; }\n\n.steps { margin: 0; padding-left: 20px; color: var(--text-2); display: flex; flex-direction: column; gap: 4px; }\n.picker {\n  display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 26px 16px; text-align: center;\n  border: 2px dashed var(--line-strong); border-radius: 14px; background: var(--bg-2);\n}\n.picker .big { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }\n\n.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }\n.kv dt { color: var(--text-3); }\n.kv dd { margin: 0; }\n\n/* ---- range ---------------------------------------------------------------------- */\n\n.range { display: flex; align-items: center; gap: 12px; }\n.range input[type="range"] { flex: 1; accent-color: var(--accent); }\n.range output { width: 70px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }\n\n/* ---- overlays ---------------------------------------------------------------------- */\n\n.overlay {\n  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;\n  background: var(--overlay); backdrop-filter: blur(3px); animation: fade 0.12s ease-out;\n}\n@keyframes fade { from { opacity: 0; } }\n.dialog {\n  width: min(460px, 100%); background: var(--bg); border-radius: 16px; box-shadow: var(--shadow); padding: 20px;\n  display: flex; flex-direction: column; gap: 14px; animation: win-in 0.16s ease-out;\n}\n.dialog h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px; }\n.dialog .danger-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--danger-soft); color: var(--danger); }\n.dialog p { margin: 0; color: var(--text-2); }\n.dialog .big-num { font-size: 15px; color: var(--text); font-weight: 600; }\n\n.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 2147483600; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }\n.toast {\n  pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: 360px; padding: 10px 14px;\n  border-radius: 12px; background: var(--bg); box-shadow: var(--shadow); font-weight: 500; cursor: pointer;\n  animation: toast-in 0.2s ease-out; border-left: 4px solid var(--accent);\n}\n.toast.success { border-left-color: var(--success); }\n.toast.warn { border-left-color: var(--warn); }\n.toast.error { border-left-color: var(--danger); }\n@keyframes toast-in { from { opacity: 0; transform: translateX(12px); } }\n\n.fab {\n  all: unset; box-sizing: border-box; cursor: pointer; position: fixed; right: 22px; bottom: 92px; z-index: 2147482999;\n  width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; color: #fff;\n  background: linear-gradient(135deg, #7983f5 0%, #5865f2 45%, #4049c9 100%);\n  box-shadow: 0 10px 28px rgba(88, 101, 242, 0.45), inset 0 1px 0 rgba(255,255,255,.25);\n  transition: transform 0.15s;\n}\n.fab:hover { transform: translateY(-2px) scale(1.04); }\n.fab .ring { position: absolute; inset: -4px; }\n.fab .ring circle { fill: none; stroke-width: 3; }\n\n/* ---- privacy -------------------------------------------------------------------------- */\n\n.root.privacy .priv { filter: blur(6px); transition: filter 0.15s; }\n.root.privacy .priv:hover { filter: none; }\n\n.muted { color: var(--text-3); }\n.small { font-size: 12.5px; }\n.nowrap { white-space: nowrap; }\n.tabular { font-variant-numeric: tabular-nums; }\n.grow { flex: 1; min-width: 0; }\n.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.link { all: unset; cursor: pointer; color: var(--accent-text); font-weight: 600; }\n.link:hover { text-decoration: underline; }\nhr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }\nkbd {\n  font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius: 6px;\n  background: var(--bg-3); border: 1px solid var(--line-strong); border-bottom-width: 2px;\n}\n';
 
   // src/main.tsx
   var TRASH_SVG = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
