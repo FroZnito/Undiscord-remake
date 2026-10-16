@@ -8,8 +8,11 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 const args = new Set(process.argv.slice(2));
 const watch = args.has('--watch');
 const serve = args.has('--serve');
+const dev = watch || serve;
 const PORT = 8787;
 const OUT = 'dist/undiscord-remake.user.js';
+// Dev builds get their own file so a running `npm run dev` can never overwrite the published script.
+const DEV_OUT = 'dist/undiscord-remake.dev.user.js';
 const RAW_URL = `https://raw.githubusercontent.com/FroZnito/Undiscord-remake/main/${OUT}`;
 
 const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
@@ -39,7 +42,7 @@ function metadata(dev) {
     ['noframes', ''],
   ];
   // Tampermonkey checks this URL for updates (the built file is committed for that reason).
-  const url = dev ? `http://localhost:${PORT}/${OUT}` : RAW_URL;
+  const url = dev ? `http://localhost:${PORT}/${DEV_OUT}` : RAW_URL;
   entries.push(['downloadURL', url], ['updateURL', url]);
   const pad = Math.max(...entries.map(([k]) => k.length));
   const lines = entries.map(([k, v]) => `// @${k.padEnd(pad)} ${v}`.trimEnd());
@@ -53,7 +56,7 @@ function metadata(dev) {
 /** @type {esbuild.BuildOptions} */
 const userscript = {
   entryPoints: ['src/main.tsx'],
-  outfile: OUT,
+  outfile: dev ? DEV_OUT : OUT,
   bundle: true,
   format: 'iife',
   target: ['chrome110', 'firefox115', 'safari16'],
@@ -61,7 +64,7 @@ const userscript = {
   jsxImportSource: 'preact',
   loader: { '.css': 'text' },
   define: { __VERSION__: JSON.stringify(pkg.version) },
-  banner: { js: metadata(watch) },
+  banner: { js: metadata(dev) },
   // Readable output on purpose: people should be able to audit what they install.
   minify: false,
   legalComments: 'none',
@@ -79,14 +82,14 @@ const playground = {
   logLevel: 'info',
 };
 
-if (watch || serve) {
+if (dev) {
   const contexts = await Promise.all([esbuild.context(userscript), esbuild.context(playground)]);
   await Promise.all(contexts.map(c => c.watch()));
   if (serve) {
     // Any unknown path (e.g. /channels/123/456) falls back to the playground page.
     const { port } = await contexts[0].serve({ servedir: '.', port: PORT, fallback: 'dev/playground.html' });
     console.log(`\n  Playground: http://localhost:${port}/channels/200000000000000001/300000000000000001`);
-    console.log(`  Userscript: http://localhost:${port}/${OUT}\n`);
+    console.log(`  Userscript: http://localhost:${port}/${DEV_OUT}\n`);
   }
 } else {
   await esbuild.build(userscript);

@@ -80,7 +80,8 @@ npm run check      # typecheck + tests + build
 `npm run dev` sert un **playground** (`dev/playground.html`) qui imite Discord en mémoire, avec ses limitations,
 son indexation lente, ses pages vides et ses raccourcis globaux. On peut tout tester sans compte réel ;
 le bouton « package.zip d'exemple » génère un faux package de données. La version `[DEV]` du script installée
-depuis `http://localhost:8787/dist/undiscord-remake.user.js` se met à jour toute seule.
+depuis `http://localhost:8787/dist/undiscord-remake.dev.user.js` se met à jour toute seule. Le mode dev écrit
+dans ce fichier séparé et ne touche jamais au script publié.
 
 ### Publier une version
 
