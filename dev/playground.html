@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr" class="theme-dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discord (playground — Undiscord Remake by FroZn)</title>
+  <style>
+    :root { --background-primary: #313338; --interactive-normal: #b5bac1; --interactive-hover: #dbdee1; --interactive-active: #fff; }
+    html.theme-light { --background-primary: #fff; --interactive-normal: #4e5058; --interactive-hover: #2e3338; --interactive-active: #060607; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body { font: 15px/1.4 "gg sans", "Noto Sans", system-ui, sans-serif; background: var(--background-primary); color: #dbdee1; }
+    html.theme-light body { color: #313338; }
+    #app-mount { display: grid; grid-template-columns: 72px 240px 1fr; height: 100%; }
+    .guilds_x1 { background: #1e1f22; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; }
+    html.theme-light .guilds_x1 { background: #e3e5e8; }
+    .guilds_x1 a { width: 48px; height: 48px; border-radius: 50%; background: #313338; color: #dbdee1; display: grid; place-items: center; text-decoration: none; font-weight: 700; }
+    .guilds_x1 a.on { border-radius: 16px; background: #5865f2; color: #fff; }
+    .sidebar_x2 { background: #2b2d31; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+    html.theme-light .sidebar_x2 { background: #f2f3f5; }
+    .sidebar_x2 a { color: #949ba4; text-decoration: none; padding: 6px 8px; border-radius: 4px; }
+    .sidebar_x2 a.on { background: #404249; color: #fff; }
+    html.theme-light .sidebar_x2 a.on { background: #d7d9dc; color: #060607; }
+    main { display: grid; grid-template-rows: 48px 1fr auto; min-width: 0; }
+    section.title_a1b2c3 { display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid rgba(0,0,0,.3); font-weight: 700; }
+    .children_q { flex: 1; }
+    .toolbar__9293f { display: flex; align-items: center; gap: 4px; }
+    .toolbar__9293f .iconWrapper_z { width: 24px; height: 24px; margin: 0 8px; color: var(--interactive-normal); display: grid; place-items: center; }
+    ol[data-list-id="chat-messages"] { list-style: none; margin: 0; padding: 16px 0; overflow: auto; display: flex; flex-direction: column-reverse; }
+    li[id^="chat-messages-"] { padding: 4px 16px; display: flex; gap: 12px; }
+    li[id^="chat-messages-"]:hover { background: rgba(0,0,0,.08); }
+    li .who { font-weight: 600; color: #f2f3f5; }
+    html.theme-light li .who { color: #060607; }
+    li .when { font-size: 12px; color: #949ba4; margin-left: 6px; }
+    li.mine .who { color: #8ea1e1; }
+    .composer { margin: 0 16px 20px; background: #383a40; border-radius: 8px; padding: 11px 16px; color: #949ba4; outline: none; }
+    html.theme-light .composer { background: #ebedef; }
+    .composer:focus { color: #dbdee1; box-shadow: 0 0 0 2px #f0b232; }
+    .dev-bar { position: fixed; left: 80px; bottom: 6px; font-size: 12px; color: #949ba4; display: flex; gap: 8px; align-items: center; }
+    .dev-bar button { font: inherit; background: #4e5058; color: #fff; border: 0; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+    #dev-alerts { color: #f0b232; }
+  </style>
+  <!-- Fake Discord first (mocks fetch), then the userscript, like Tampermonkey at document-start. -->
+  <script src="/dist/playground.js"></script>
+  <script src="/dist/undiscord-remake.user.js"></script>
+</head>
+<body>
+  <div id="app-mount"></div>
+  <div class="dev-bar">
+    <span>Playground Undiscord Remake by FroZn — faux Discord en mémoire</span>
+    <button id="dev-theme" type="button">Thème</button>
+    <button id="dev-reset" type="button">Réinitialiser</button>
+    <button id="dev-package" type="button" title="Télécharge un faux package de données pour tester l'onglet Package">package.zip d'exemple</button>
+    <span id="dev-alerts"></span>
+  </div>
+</body>
+</html>

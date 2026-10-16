@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.DS_Store
+
+# Editor settings
+.vscode/
+.idea/
+
+# Build output: only the userscript itself is published (install & auto-update link)
+dist/*
+!dist/undiscord-remake.user.js

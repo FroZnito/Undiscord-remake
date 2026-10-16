@@ -1,0 +1,48 @@
+{
+  "name": "undiscord-remake",
+  "displayName": "Undiscord Remake",
+  "version": "1.0.0",
+  "description": "Supprime en masse tes messages Discord (salons, MP, serveurs, package de données) — Undiscord Remake by FroZn.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "FroZn",
+  "homepage": "https://github.com/FroZnito/Undiscord-remake",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FroZnito/Undiscord-remake.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FroZnito/Undiscord-remake/issues"
+  },
+  "userscript": {
+    "namespace": "https://github.com/FroZnito/Undiscord-remake",
+    "match": [
+      "https://discord.com/*",
+      "https://ptb.discord.com/*",
+      "https://canary.discord.com/*"
+    ],
+    "run-at": "document-start",
+    "grant": "none",
+    "inject-into": "page",
+    "noframes": true
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch --serve",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.3",
+    "fflate": "^0.8.3",
+    "preact": "^11.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  }
+}
