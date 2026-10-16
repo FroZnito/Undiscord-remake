@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name           Undiscord Remake
 // @namespace      https://github.com/FroZnito/Undiscord-remake
-// @version        1.0.0
+// @version        1.1.0
 // @description    Supprime en masse tes messages Discord (salons, MP, serveurs, package de données) — Undiscord Remake by FroZn.
 // @description:en Bulk delete your Discord messages (channels, DMs, servers, data package) — Undiscord Remake by FroZn.
 // @author         FroZn
@@ -3909,7 +3909,7 @@ ${sections}${credit ? `<footer>Export : <a href="${escapeHtml(credit.url)}" targ
   var saveRect = () => save("rect", ui.rect.value);
 
   // src/ui/constants.ts
-  var VERSION = true ? "1.0.0" : "dev";
+  var VERSION = true ? "1.1.0" : "dev";
   var APP_NAME = "Undiscord Remake";
   var AUTHOR = "FroZn";
   var BRAND = `${APP_NAME} by ${AUTHOR}`;
